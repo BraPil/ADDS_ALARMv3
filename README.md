@@ -49,11 +49,13 @@ The source codebase (`ADDS_Orig`) is **never modified**.
 
 ---
 
-## How to use agentically
+## Asking questions about ADDS
 
-ALARMv3 is an MCP server. An AI agent (Claude, Cursor, etc.) drives it — not a human CLI.
+Once the ALARMv3 MCP server is connected to your AI assistant (Claude Desktop, Cursor, etc.),
+you can ask plain-English questions about the codebase. The agent uses the `query_codebase`
+tool and the semantic graph in `analysis.db` to answer — no need to read raw source files.
 
-### 1. Add to your MCP client config
+### Connect ALARMv3 to your MCP client
 
 ```json
 "alarmv3": {
@@ -67,15 +69,105 @@ ALARMv3 is an MCP server. An AI agent (Claude, Cursor, etc.) drives it — not a
 }
 ```
 
-### 2. Resume the existing session
+Then just talk to your AI assistant. Examples of what you can ask:
 
-The session is in state `IMPLEMENTATION_PLANNED`. Tell your AI assistant:
+---
 
-> "Resume the ADDS modernization session. The workspace is at ADDS_ALARMv3.
-> Clone the repo for implementation, then run implement_batch and walk me
-> through each change."
+### Security and credentials
 
-### 3. The agent will call these tools in order
+> *"What databases are involved and what are the credentials used to access them?"*
+
+The agent will query the dependency graph and symbol index for Oracle connection strings,
+hardcoded credentials, and config files. For ADDS it will surface:
+
+- `Oracle 11g` at `ORACLE11G-PROD:1521/ADDSDB`
+- Username `adds_user`, password `adds_p@ss_2003!` hardcoded in:
+  `OracleConnection.cs`, `deploy-adds.ps1`, `sync-oracle.ps1`, `ADDSOracleModule.psm1`, `adds.config`
+- The `ADS_OADB` ODBC DSN used by AutoLISP (`pipe-routing.lsp`, `equipment.lsp`)
+
+---
+
+### Architecture and structure
+
+> *"What are the main subsystems in ADDS and how do they interact?"*
+
+> *"Which AutoLISP functions write to the database, and which functions do they call?"*
+
+> *"What is the entry point for a user placing a pump in a drawing?"*
+
+The agent walks the dependency graph: `C:ADDS-PLACE-PUMP` → `adds-insert-equipment-block`
++ `adds-db-save-equipment` → `ads_oadb_execute` (Oracle OADB bridge).
+
+---
+
+### Cross-implementation comparisons
+
+> *"How do the APC Transmission, APC Distribution and GPC Transmission implementations differ?"*
+
+> *"Which modules are shared between substation types and which are unique?"*
+
+> *"Where is the single-line diagram logic for each transmission type, and do they share a common base?"*
+
+The agent compares symbol tables, dependency edges, and file groupings across the
+subsystems identified during deep analysis to find divergence points and shared code.
+
+---
+
+### Modernization impact
+
+> *"Which files changed the most between the original and modernized branch?"*
+
+> *"What was removed from OracleConnection.cs in the ODP.NET migration?"*
+
+> *"Are there any AutoLISP files that still make direct Oracle calls after the migration?"*
+
+The agent can diff specific files between `ADDS_Orig/main` and `ADDS_ALARMv3/modernized`,
+or query `implementation_changes.md` for a summary of every applied change.
+
+---
+
+### Deep-dive queries
+
+> *"List every function with cyclomatic complexity above 10."*
+
+> *"Which files have the most inbound dependencies — what would break first?"*
+
+> *"Show me all SQL strings that are built by string concatenation — potential injection points."*
+
+These are answered directly from the `complexity_metric`, `dependency_edge`, and `symbol`
+tables in `analysis.db` without any additional Claude calls.
+
+---
+
+### How it works under the hood
+
+```
+Your question
+    ↓
+AI assistant (Claude / Cursor)
+    ↓  calls
+query_codebase(session_id, question="...")   ← MCP tool
+    ↓  queries
+analysis.db  (symbols, deps, complexity, manifest, recommendations)
+    ↓  returns ranked results
+AI assembles answer from semantic graph data
+```
+
+The LLM never reads raw source files for Q&A — it reads the pre-built semantic graph,
+which makes answers fast and consistent regardless of codebase size.
+
+---
+
+## How to use agentically (full pipeline)
+
+### 1. Resume or start a new session
+
+Point `ALARMV3_WORKSPACE` at this directory. Tell your AI assistant:
+
+> "The ADDS modernization workspace is at ADDS_ALARMv3. The session is complete —
+> walk me through the implementation changes and show me what was modernized."
+
+### 2. Tools the agent uses for implementation
 
 ```
 clone_for_implementation(session_id, target_path="<where to write modernized code>")
@@ -85,7 +177,7 @@ accept_change(session_id, change_id)   # commits to target
 reject_change(session_id, change_id, feedback="...")
 ```
 
-### 4. Resources the agent reads
+### 3. Resources the agent reads
 
 | Resource URI | What it returns |
 |---|---|
