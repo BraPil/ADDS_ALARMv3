@@ -1,46 +1,32 @@
 // ADDS Layer Management - AutoCAD COM interop
+//
+// AutoCAD .NET API Compatibility Matrix
+// -------------------------------------------------------
+// Assembly         | Version Tested | CopyLocal | Notes
+// acdbmgd.dll      | 24.1.*.*       | false     | AutoCAD 2021
+// acmgd.dll        | 24.1.*.*       | false     | AutoCAD 2021
+// AcCoreMgd.dll    | 24.1.*.*       | false     | AutoCAD 2021
+// -------------------------------------------------------
+// All AutoCAD API assemblies MUST have CopyLocal=false.
+// See DrawingManager.cs for the full compatibility policy.
+//
 using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 using Autodesk.AutoCAD.Interop;
-using Autodesk.AutoCAD.Interop.Common;
-
-            }
-        }
+            {"ADDS-ANNOTATION", 1}, {"ADDS-DIMENSION", 8}
+        };
 
         /// <summary>
-        /// Freezes all layers that do not start with "ADDS-" and are not the "0" layer.
-        /// Transaction-safe: uses StartUndoMark/EndUndoMark on the document to guarantee
-        /// the undo group is always closed even if a COM exception is thrown on a specific layer.
-        /// Each layer freeze is individually guarded to allow processing to continue if one
-        /// layer (e.g. the current active layer) throws a COM exception when frozen.
-        /// NOTE: COM interop does not support Autodesk.AutoCAD.DatabaseServices.Transaction;
-        /// StartUndoMark/EndUndoMark is the COM equivalent for undo grouping.
-        /// Migrate to AcMgd.dll Transaction when .NET API migration is complete (see TODO in DrawingManager.cs).
+        /// Initialises standard ADDS layers via <see cref="DrawingManager"/>.
+        /// Performs a host-version check before any AutoCAD API call so that
+        /// version mismatches fail fast with an actionable error message.
         /// </summary>
-        public static void FreezeNonADDSLayers(AcadDocument doc)
+        public static void SetupStandardLayers(DrawingManager dm)
         {
-            doc.StartUndoMark();
-            try
+            // Guard is idempotent; calling it here ensures every public entry
+            // point in this class validates the host version before use.
+            VersionGuard.AssertCompatible();
+
+            foreach (var layer in LayerColors.Keys)
             {
-                foreach (AcadLayer l in doc.Layers)
-                {
-                    if (!l.Name.StartsWith("ADDS-") && l.Name != "0")
-                    {
-                        try
-                        {
-                            l.Freeze = true;
-                        }
-                        catch (COMException)
-                        {
-                            // Freezing the current active layer throws a COM exception;
-                            // skip that layer and continue processing remaining layers.
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                doc.EndUndoMark();
-            }
-        }
+                dm.SetLayer(layer);
