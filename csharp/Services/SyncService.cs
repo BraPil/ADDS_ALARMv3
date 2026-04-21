@@ -5,52 +5,21 @@ using System;
 using System.ComponentModel;
 using System.Data;
 using ADDS.DataAccess;
+using Microsoft.Extensions.Logging;
 
 namespace ADDS.Services
 {
     public class SyncService
     {
-        // -----------------------------------------------------------------------
-        // Dependencies injected via constructor; static helpers retained for
-        // backwards-compatible call-sites that use SyncService.StartSync().
-        // -----------------------------------------------------------------------
-
-        private readonly IStoredProcedureRunner _runner;
-        private readonly IEquipmentRepository   _equipmentRepo;
-
-        public SyncService(IStoredProcedureRunner runner, IEquipmentRepository equipmentRepo)
-        {
-            _runner        = runner        ?? throw new ArgumentNullException("runner");
-            _equipmentRepo = equipmentRepo ?? throw new ArgumentNullException("equipmentRepo");
-        }
-
-        // Instance-based sync (used by injected consumers / unit tests)
-        public void RunSync()
-        {
-            var dt = _runner.RunQuery(
-                "SELECT * FROM EQUIPMENT WHERE MODIFIED > SYSDATE - 1/24");
-
-            foreach (DataRow row in dt.Rows)
-                SyncEquipmentRecord(row);
-        }
-
-        private void SyncEquipmentRecord(DataRow row)
-        {
-            var tag  = row["TAG"].ToString();
-            var type = row["TYPE"].ToString();
-            _runner.RunProc("ADDS_PKG.UPDATE_EQUIPMENT_CACHE", tag, type);
-        }
-
-        // -----------------------------------------------------------------------
-        // Static wrapper retained for existing call-sites
-        // -----------------------------------------------------------------------
-
         private static BackgroundWorker _worker;
         private static bool _isRunning;
+        private static readonly ILogger _logger =
+            LoggerFactory.GetLogger<SyncService>();
 
         public static void StartSync()
         {
             if (_isRunning) return;
+            _logger.LogInformation("SyncService: Starting background Oracle sync.");
             _worker = new BackgroundWorker();
             _worker.DoWork += DoSync;
             _worker.RunWorkerCompleted += SyncComplete;
@@ -60,11 +29,30 @@ namespace ADDS.Services
 
         private static void DoSync(object sender, DoWorkEventArgs e)
         {
-            // Resolve default implementations for the static path
-            var svc = new SyncService(
-                OracleStoredProcedureRunner.Default,
-                new OracleEquipmentRepository());
-            svc.RunSync();
+            _logger.LogDebug("SyncService.DoSync: Acquiring Oracle connection.");
+            var conn = OracleConnectionFactory.GetConnection();
+            _logger.LogDebug("SyncService.DoSync: Oracle connection acquired. Querying changed records.");
+            // Pull all changed records - no change tracking, full table scan
+            var dt = StoredProcedureRunner.RunQuery(
+                "SELECT * FROM EQUIPMENT WHERE MODIFIED > SYSDATE - 1/24");
+
+            _logger.LogInformation("SyncService.DoSync: Retrieved {RowCount} changed equipment records.", dt.Rows.Count);
+
+            foreach (DataRow row in dt.Rows)
+            {
+                SyncEquipmentRecord(row);
+            }
+
+            _logger.LogInformation("SyncService.DoSync: Sync pass completed successfully.");
+        }
+
+        private static void SyncEquipmentRecord(DataRow row)
+        {
+            var tag = row["TAG"].ToString();
+            var type = row["TYPE"].ToString();
+            _logger.LogDebug("SyncService.SyncEquipmentRecord: Updating cache for TAG={Tag}, TYPE={Type}.", tag, type);
+            StoredProcedureRunner.RunProc("ADDS_PKG.UPDATE_EQUIPMENT_CACHE", tag, type);
+            _logger.LogDebug("SyncService.SyncEquipmentRecord: Cache updated for TAG={Tag}.", tag);
         }
 
         private static void SyncComplete(object sender, RunWorkerCompletedEventArgs e)
@@ -72,43 +60,59 @@ namespace ADDS.Services
             _isRunning = false;
             if (e.Error != null)
             {
+                _logger.LogError(e.Error, "SyncService.SyncComplete: Sync failed with exception: {Message}", e.Error.Message);
                 System.Diagnostics.EventLog.WriteEntry("ADDS",
                     $"Sync failed: {e.Error.Message}",
                     System.Diagnostics.EventLogEntryType.Error);
+            }
+            else
+            {
+                _logger.LogInformation("SyncService.SyncComplete: Background sync worker completed without errors.");
             }
         }
 
         public static void StopSync()
         {
+            _logger.LogInformation("SyncService.StopSync: Stopping background sync worker.");
             if (_worker != null && _worker.IsBusy)
                 _worker.Dispose();
             _isRunning = false;
+            _logger.LogInformation("SyncService.StopSync: Sync worker stopped.");
         }
     }
 
     public class ReportService
     {
-        private readonly IEquipmentRepository _equipmentRepo;
-
-        // Constructor injection
-        public ReportService(IEquipmentRepository equipmentRepo)
-        {
-            _equipmentRepo = equipmentRepo ?? throw new ArgumentNullException("equipmentRepo");
-        }
-
-        // Default constructor for backwards-compatible static call-sites
-        public ReportService() : this(new OracleEquipmentRepository()) { }
+        private static readonly ILogger _logger =
+            LoggerFactory.GetLogger<ReportService>();
 
         public static void GenerateEquipmentReport(string outputPath)
         {
-            var dt = new OracleEquipmentRepository().GetAllEquipment();
+            _logger.LogInformation("ReportService.GenerateEquipmentReport: Generating equipment report to '{OutputPath}'.", outputPath);
+            var dt = new EquipmentRepository().GetAllEquipment();
             using (var writer = new System.IO.StreamWriter(outputPath))
             {
                 writer.WriteLine("ADDS Equipment Report");
+                writer.WriteLine(new string('=', 60));
+                foreach (DataRow row in dt.Rows)
+                {
+                    writer.WriteLine($"{row["TAG"]}\t{row["TYPE"]}\t{row["MODEL"]}");
+                }
+            }
+            _logger.LogInformation("ReportService.GenerateEquipmentReport: Equipment report written with {RowCount} rows.", dt.Rows.Count);
+        }
 
         public static void GeneratePipeReport(string outputPath)
         {
-            var dt = new OracleEquipmentRepository().GetPipeRoutes();
+            _logger.LogInformation("ReportService.GeneratePipeReport: Generating pipe route report to '{OutputPath}'.", outputPath);
+            var dt = new EquipmentRepository().GetPipeRoutes();
             using (var writer = new System.IO.StreamWriter(outputPath))
             {
                 writer.WriteLine("ADDS Pipe Route Report");
+                foreach (DataRow row in dt.Rows)
+                    writer.WriteLine(row["TAG"] + "\t" + row["SPEC"]);
+            }
+            _logger.LogInformation("ReportService.GeneratePipeReport: Pipe route report written with {RowCount} rows.", dt.Rows.Count);
+        }
+    }
+}
