@@ -1,79 +1,114 @@
 // ADDS Sync Service - background Oracle synchronization
-// Async/await with Task and CancellationToken
+// .NET Framework 4.5 - no async/await, uses BackgroundWorker
 
 using System;
+using System.ComponentModel;
 using System.Data;
-using System.Threading;
-using System.Threading.Tasks;
 using ADDS.DataAccess;
 
 namespace ADDS.Services
 {
     public class SyncService
     {
-        private static CancellationTokenSource _cts;
-        private static Task _syncTask;
+        // -----------------------------------------------------------------------
+        // Dependencies injected via constructor; static helpers retained for
+        // backwards-compatible call-sites that use SyncService.StartSync().
+        // -----------------------------------------------------------------------
+
+        private readonly IStoredProcedureRunner _runner;
+        private readonly IEquipmentRepository   _equipmentRepo;
+
+        public SyncService(IStoredProcedureRunner runner, IEquipmentRepository equipmentRepo)
+        {
+            _runner        = runner        ?? throw new ArgumentNullException("runner");
+            _equipmentRepo = equipmentRepo ?? throw new ArgumentNullException("equipmentRepo");
+        }
+
+        // Instance-based sync (used by injected consumers / unit tests)
+        public void RunSync()
+        {
+            var dt = _runner.RunQuery(
+                "SELECT * FROM EQUIPMENT WHERE MODIFIED > SYSDATE - 1/24");
+
+            foreach (DataRow row in dt.Rows)
+                SyncEquipmentRecord(row);
+        }
+
+        private void SyncEquipmentRecord(DataRow row)
+        {
+            var tag  = row["TAG"].ToString();
+            var type = row["TYPE"].ToString();
+            _runner.RunProc("ADDS_PKG.UPDATE_EQUIPMENT_CACHE", tag, type);
+        }
+
+        // -----------------------------------------------------------------------
+        // Static wrapper retained for existing call-sites
+        // -----------------------------------------------------------------------
+
+        private static BackgroundWorker _worker;
         private static bool _isRunning;
 
         public static void StartSync()
         {
             if (_isRunning) return;
-            _cts = new CancellationTokenSource();
-            _syncTask = Task.Run(() => DoSyncAsync(_cts.Token), _cts.Token)
-                .ContinueWith(SyncComplete, TaskScheduler.Default);
+            _worker = new BackgroundWorker();
+            _worker.DoWork += DoSync;
+            _worker.RunWorkerCompleted += SyncComplete;
+            _worker.RunWorkerAsync();
             _isRunning = true;
         }
 
-        private static async Task DoSyncAsync(CancellationToken ct)
+        private static void DoSync(object sender, DoWorkEventArgs e)
         {
-            // Pull all changed records - no change tracking, full table scan
-            var dt = await StoredProcedureRunner.RunQueryAsync(
-                "SELECT * FROM EQUIPMENT WHERE MODIFIED > SYSDATE - 1/24",
-                ct).ConfigureAwait(false);
-
-            foreach (DataRow row in dt.Rows)
-            {
-                ct.ThrowIfCancellationRequested();
-                await SyncEquipmentRecordAsync(row, ct).ConfigureAwait(false);
-            }
+            // Resolve default implementations for the static path
+            var svc = new SyncService(
+                OracleStoredProcedureRunner.Default,
+                new OracleEquipmentRepository());
+            svc.RunSync();
         }
 
-        private static async Task SyncEquipmentRecordAsync(DataRow row, CancellationToken ct)
-        {
-            var tag = row["TAG"].ToString();
-            var type = row["TYPE"].ToString();
-            await StoredProcedureRunner.RunProcAsync(
-                "ADDS_PKG.UPDATE_EQUIPMENT_CACHE", ct, tag, type).ConfigureAwait(false);
-        }
-
-        private static void SyncComplete(Task completedTask)
+        private static void SyncComplete(object sender, RunWorkerCompletedEventArgs e)
         {
             _isRunning = false;
-            if (completedTask.IsFaulted && completedTask.Exception != null)
+            if (e.Error != null)
             {
                 System.Diagnostics.EventLog.WriteEntry("ADDS",
-                    $"Sync failed: {completedTask.Exception.GetBaseException().Message}",
+                    $"Sync failed: {e.Error.Message}",
                     System.Diagnostics.EventLogEntryType.Error);
             }
         }
 
         public static void StopSync()
         {
-            if (_cts != null)
-            {
-                _cts.Cancel();
-                _cts.Dispose();
-                _cts = null;
-            }
+            if (_worker != null && _worker.IsBusy)
+                _worker.Dispose();
             _isRunning = false;
         }
     }
+
     public class ReportService
     {
-        public static async Task GenerateEquipmentReportAsync(string outputPath,
-            CancellationToken ct = default)
+        private readonly IEquipmentRepository _equipmentRepo;
+
+        // Constructor injection
+        public ReportService(IEquipmentRepository equipmentRepo)
         {
-            var dt = await new EquipmentRepository().GetAllEquipmentAsync(ct)
-                .ConfigureAwait(false);
+            _equipmentRepo = equipmentRepo ?? throw new ArgumentNullException("equipmentRepo");
+        }
+
+        // Default constructor for backwards-compatible static call-sites
+        public ReportService() : this(new OracleEquipmentRepository()) { }
+
+        public static void GenerateEquipmentReport(string outputPath)
+        {
+            var dt = new OracleEquipmentRepository().GetAllEquipment();
             using (var writer = new System.IO.StreamWriter(outputPath))
             {
+                writer.WriteLine("ADDS Equipment Report");
+
+        public static void GeneratePipeReport(string outputPath)
+        {
+            var dt = new OracleEquipmentRepository().GetPipeRoutes();
+            using (var writer = new System.IO.StreamWriter(outputPath))
+            {
+                writer.WriteLine("ADDS Pipe Route Report");

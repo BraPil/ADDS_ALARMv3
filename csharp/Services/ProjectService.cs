@@ -2,7 +2,11 @@
 using System;
 using System.Data;
 using ADDS.DataAccess;
-using Oracle.ManagedDataAccess.Client;
 
 namespace ADDS.Services
 {
+    public class ProjectService
+    {
+        private readonly IStoredProcedureRunner _runner;
+
+        // Constructor injection – enables unit testing without a live Oracle
