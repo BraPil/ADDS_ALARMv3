@@ -1,0 +1,22 @@
+{
+  "session_id": "32552d53-4281-4c3c-a922-4dd1ad53be8c",
+  "source_path": "/workspaces/ADDS",
+  "state": "IMPLEMENTATION_PLANNED",
+  "language_distribution": {
+    "csharp": 7,
+    "inferred_config": 1,
+    "inferred_dcl": 1,
+    "inferred_lsp": 6,
+    "inferred_ps1": 2,
+    "inferred_psm1": 1,
+    "sql": 1
+  },
+  "symbol_types": {
+    "class": 13,
+    "function": 48,
+    "inferred_class": 2,
+    "inferred_function": 61
+  },
+  "total_loc": 509,
+  "recommendation_count": 14
+}

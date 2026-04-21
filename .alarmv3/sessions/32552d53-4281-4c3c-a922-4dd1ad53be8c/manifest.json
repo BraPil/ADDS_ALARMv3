@@ -1,0 +1,135 @@
+[
+  {
+    "relative_path": "config/adds.config",
+    "language": "inferred_config",
+    "size_bytes": 209,
+    "line_count": 10,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "csharp/AutoCAD/DrawingManager.cs",
+    "language": "csharp",
+    "size_bytes": 3803,
+    "line_count": 123,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "csharp/AutoCAD/LayerManager.cs",
+    "language": "csharp",
+    "size_bytes": 1687,
+    "line_count": 59,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "csharp/DataAccess/OracleConnection.cs",
+    "language": "csharp",
+    "size_bytes": 4005,
+    "line_count": 111,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "csharp/DataAccess/StoredProcedures.cs",
+    "language": "csharp",
+    "size_bytes": 2841,
+    "line_count": 85,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "csharp/Forms/MainForm.cs",
+    "language": "csharp",
+    "size_bytes": 2950,
+    "line_count": 95,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "csharp/Services/ProjectService.cs",
+    "language": "csharp",
+    "size_bytes": 1611,
+    "line_count": 46,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "csharp/Services/SyncService.cs",
+    "language": "csharp",
+    "size_bytes": 2985,
+    "line_count": 93,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "lisp/dialogs/dialog-utils.lsp",
+    "language": "inferred_lsp",
+    "size_bytes": 2019,
+    "line_count": 60,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "lisp/dialogs/main-menu.dcl",
+    "language": "inferred_dcl",
+    "size_bytes": 1640,
+    "line_count": 89,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "lisp/drawing/draw-commands.lsp",
+    "language": "inferred_lsp",
+    "size_bytes": 2184,
+    "line_count": 69,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "lisp/drawing/equipment.lsp",
+    "language": "inferred_lsp",
+    "size_bytes": 3444,
+    "line_count": 86,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "lisp/drawing/pipe-routing.lsp",
+    "language": "inferred_lsp",
+    "size_bytes": 2742,
+    "line_count": 79,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "lisp/utils/db-utils.lsp",
+    "language": "inferred_lsp",
+    "size_bytes": 2576,
+    "line_count": 81,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "lisp/utils/string-utils.lsp",
+    "language": "inferred_lsp",
+    "size_bytes": 1470,
+    "line_count": 56,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "powershell/admin/ADDSOracleModule.psm1",
+    "language": "inferred_psm1",
+    "size_bytes": 2838,
+    "line_count": 100,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "powershell/db/sync-oracle.ps1",
+    "language": "inferred_ps1",
+    "size_bytes": 3306,
+    "line_count": 107,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "powershell/deploy/deploy-adds.ps1",
+    "language": "inferred_ps1",
+    "size_bytes": 3394,
+    "line_count": 104,
+    "is_eligible": 1
+  },
+  {
+    "relative_path": "sql/schema.sql",
+    "language": "sql",
+    "size_bytes": 1375,
+    "line_count": 51,
+    "is_eligible": 0
+  }
+]
