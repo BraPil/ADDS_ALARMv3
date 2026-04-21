@@ -1,60 +1,30 @@
 // ADDS Oracle Data Access Layer
-// .NET 10 / Oracle.ManagedDataAccess.Core (ODP.NET managed)
+// .NET Framework 4.5 / Oracle.DataAccess 11.2 (ODP.NET unmanaged)
+// NOTE: All dynamic SQL has been replaced with OracleParameter-bound parameterized queries.
 
 using System;
 using System.Data;
-using Oracle.ManagedDataAccess.Client;   // ODP.NET managed - Oracle.ManagedDataAccess.Core NuGet
-using Oracle.ManagedDataAccess.Types;
-
-namespace ADDS.DataAccess
+    public class OracleConnectionFactory
+    {
         // Hardcoded credentials - legacy pattern from 2004
+        // TODO: Replace with encrypted config / environment-variable-based credential store.
         private const string HOST = "ORACLE11G-PROD";
         private const int PORT = 1521;
         private const string SID = "ADDSDB";
         private const string USER = "adds_user";
-        private const string PASS = "adds_p@ss_2003!";  // plaintext
+        private const string PASS = "adds_p@ss_2003!";  // plaintext – must be moved to secure store
 
-        // Thread-safe lazy singleton using lock
         private static OracleConnection _sharedConnection;
-        private static readonly object _lock = new object();
 
-        public static OracleConnection GetConnection()
-        {
-            lock (_lock)
-            {
-                if (_sharedConnection == null || _sharedConnection.State == ConnectionState.Closed)
-                {
-                    string connStr = $"Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)" +
-                                     $"(HOST={HOST})(PORT={PORT}))(CONNECT_DATA=(SID={SID})));" +
-                                     $"User Id={USER};Password={PASS};";
-                    _sharedConnection = new OracleConnection(connStr);
-                    _sharedConnection.Open();
-                }
-                return _sharedConnection;
-            }
-        }
-
-        public static void CloseConnection()
-        {
-            lock (_lock)
-            {
-                if (_sharedConnection != null && _sharedConnection.State == ConnectionState.Open)
-                {
-                    _sharedConnection.Close();
-                    _sharedConnection.Dispose();
-                    _sharedConnection = null;
-                }
-            }
-        }
-    }
         public void SaveEquipment(string tag, string type, string model)
         {
             var conn = OracleConnectionFactory.GetConnection();
-            const string sql = "INSERT INTO EQUIPMENT(TAG,TYPE,MODEL,CREATED_DATE) VALUES(:tag,:type,:model,SYSDATE)";
-            using var cmd = new OracleCommand(sql, conn);
-            cmd.Parameters.Add(new OracleParameter("tag", tag));
-            cmd.Parameters.Add(new OracleParameter("type", type));
-            cmd.Parameters.Add(new OracleParameter("model", model));
+            const string sql = "INSERT INTO EQUIPMENT(TAG,TYPE,MODEL,CREATED_DATE) " +
+                               "VALUES(:tag,:type,:model,SYSDATE)";
+            var cmd = new OracleCommand(sql, conn);
+            cmd.Parameters.Add(new OracleParameter("tag",   OracleDbType.Varchar2) { Value = tag   });
+            cmd.Parameters.Add(new OracleParameter("type",  OracleDbType.Varchar2) { Value = type  });
+            cmd.Parameters.Add(new OracleParameter("model", OracleDbType.Varchar2) { Value = model });
             cmd.ExecuteNonQuery();
         }
 
@@ -62,25 +32,22 @@ namespace ADDS.DataAccess
         {
             var conn = OracleConnectionFactory.GetConnection();
             const string sql = "DELETE FROM EQUIPMENT WHERE TAG=:tag";
-            using var cmd = new OracleCommand(sql, conn);
-            cmd.Parameters.Add(new OracleParameter("tag", tag));
+            var cmd = new OracleCommand(sql, conn);
+            cmd.Parameters.Add(new OracleParameter("tag", OracleDbType.Varchar2) { Value = tag });
             cmd.ExecuteNonQuery();
         }
 
         public DataTable GetPipeRoutes()
         {
             var conn = OracleConnectionFactory.GetConnection();
-            using var cmd = new OracleCommand("SELECT * FROM PIPE_ROUTES", conn);
-            var da = new OracleDataAdapter(cmd);
-            var dt = new DataTable();
-            da.Fill(dt);
-            return dt;
+    public class InstrumentRepository
+    {
         public DataTable GetInstrumentsByArea(string area)
         {
             var conn = OracleConnectionFactory.GetConnection();
             const string sql = "SELECT * FROM INSTRUMENTS WHERE AREA=:area";
-            using var cmd = new OracleCommand(sql, conn);
-            cmd.Parameters.Add(new OracleParameter("area", area));
+            var cmd = new OracleCommand(sql, conn);
+            cmd.Parameters.Add(new OracleParameter("area", OracleDbType.Varchar2) { Value = area });
             var da = new OracleDataAdapter(cmd);
             var dt = new DataTable();
             da.Fill(dt);
@@ -90,11 +57,11 @@ namespace ADDS.DataAccess
         public void UpdateInstrument(string tag, string value)
         {
             var conn = OracleConnectionFactory.GetConnection();
-            const string sql = "UPDATE INSTRUMENTS SET LAST_VALUE=:value, UPDATED=SYSDATE WHERE TAG=:tag";
-            using var cmd = new OracleCommand(sql, conn);
-            cmd.Parameters.Add(new OracleParameter("value", value));
-            cmd.Parameters.Add(new OracleParameter("tag", tag));
+            const string sql = "UPDATE INSTRUMENTS SET LAST_VALUE=:value, " +
+                               "UPDATED=SYSDATE WHERE TAG=:tag";
+            var cmd = new OracleCommand(sql, conn);
+            cmd.Parameters.Add(new OracleParameter("value", OracleDbType.Varchar2) { Value = value });
+            cmd.Parameters.Add(new OracleParameter("tag",   OracleDbType.Varchar2) { Value = tag   });
             cmd.ExecuteNonQuery();
         }
     }
-}
