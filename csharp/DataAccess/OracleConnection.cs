@@ -1,55 +1,95 @@
 // ADDS Oracle Data Access Layer
-// .NET Framework 4.5 / Oracle.DataAccess 11.2 (ODP.NET unmanaged)
-// TODO: still using OCI8 for some legacy stored proc calls
-// Credentials are now sourced from environment variables. Do NOT add secrets back to this file.
+// .NET Framework 4.5+ / Oracle.ManagedDataAccess (ODP.NET Managed Core)
 
 using System;
 using System.Data;
+using System.Threading;
+using System.Threading.Tasks;
+using Oracle.ManagedDataAccess.Client;
+
+namespace ADDS.DataAccess
 {
-    public class OracleConnectionFactory
-    {
         private static OracleConnection _sharedConnection;
-
-        /// <summary>
-        /// Reads Oracle connection parameters from environment variables.
-        /// Required variables:
-        ///   ADDS_DB_HOST     – Oracle hostname or IP
-        ///   ADDS_DB_PORT     – Oracle listener port (defaults to 1521 when absent)
-        ///   ADDS_DB_SID      – Oracle SID or service name
-        ///   ADDS_DB_USER     – Database username
-        ///   ADDS_DB_PASSWORD – Database password
-        /// Set these variables in the OS, a CI/CD secret store, or Azure Key Vault
-        /// before starting the application. Never commit credential values to source control.
-        /// </summary>
-        private static string BuildConnectionString()
-        {
-            string host = GetRequiredEnv("ADDS_DB_HOST");
-            string portStr = Environment.GetEnvironmentVariable("ADDS_DB_PORT");
-            int port = string.IsNullOrWhiteSpace(portStr) ? 1521 : int.Parse(portStr);
-            string sid  = GetRequiredEnv("ADDS_DB_SID");
-            string user = GetRequiredEnv("ADDS_DB_USER");
-            string pass = GetRequiredEnv("ADDS_DB_PASSWORD");
-
-            return $"Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)" +
-                   $"(HOST={host})(PORT={port}))(CONNECT_DATA=(SID={sid})));" +
-                   $"User Id={user};Password={pass};";
-        }
-
-        private static string GetRequiredEnv(string name)
-        {
-            string value = Environment.GetEnvironmentVariable(name);
-            if (string.IsNullOrWhiteSpace(value))
-                throw new InvalidOperationException(
-                    $"Required environment variable '{name}' is not set. " +
-                    "Configure it via the OS environment, a secrets manager, or Azure Key Vault.");
-            return value;
-        }
 
         public static OracleConnection GetConnection()
         {
             if (_sharedConnection == null || _sharedConnection.State == ConnectionState.Closed)
             {
-                _sharedConnection = new OracleConnection(BuildConnectionString());
+                string connStr = $"Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)" +
+                                 $"(HOST={HOST})(PORT={PORT}))(CONNECT_DATA=(SID={SID})));" +
+                                 $"User Id={USER};Password={PASS};";
+                _sharedConnection = new OracleConnection(connStr);
                 _sharedConnection.Open();
             }
             return _sharedConnection;
+        }
+
+        public static async Task GetConnectionAsync(CancellationToken ct = default)
+        {
+            if (_sharedConnection == null || _sharedConnection.State == ConnectionState.Closed)
+            {
+                string connStr = $"Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)" +
+                                 $"(HOST={HOST})(PORT={PORT}))(CONNECT_DATA=(SID={SID})));" +
+                                 $"User Id={USER};Password={PASS};";
+                _sharedConnection = new OracleConnection(connStr);
+                await _sharedConnection.OpenAsync(ct).ConfigureAwait(false);
+            }
+        }
+
+        public static async Task CloseConnectionAsync()
+        {
+            if (_sharedConnection != null && _sharedConnection.State == ConnectionState.Open)
+            {
+                await Task.Run(() => _sharedConnection.Close()).ConfigureAwait(false);
+                _sharedConnection.Dispose();
+                _sharedConnection = null;
+            }
+    public class EquipmentRepository
+    {
+        public async Task<DataTable> GetAllEquipmentAsync(CancellationToken ct = default)
+        {
+            await OracleConnectionFactory.GetConnectionAsync(ct).ConfigureAwait(false);
+            var conn = OracleConnectionFactory.GetConnection();
+            using var cmd = new OracleCommand("SELECT * FROM EQUIPMENT ORDER BY TAG", conn);
+            var dt = new DataTable();
+            using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            dt.Load(reader);
+            return dt;
+        }
+
+        {
+            var conn = OracleConnectionFactory.GetConnection();
+            // Raw string concatenation - SQL injection risk
+            var sql = $"INSERT INTO EQUIPMENT(TAG,TYPE,MODEL,CREATED_DATE) VALUES('{tag}','{type}','{model}',SYSDATE)";
+            var cmd = new OracleCommand(sql, conn);
+            cmd.ExecuteNonQuery();
+        }
+
+        public async Task DeleteEquipmentAsync(string tag, CancellationToken ct = default)
+        {
+            await OracleConnectionFactory.GetConnectionAsync(ct).ConfigureAwait(false);
+            var conn = OracleConnectionFactory.GetConnection();
+            using var cmd = new OracleCommand(
+                "DELETE FROM EQUIPMENT WHERE TAG = :tag", conn);
+            cmd.Parameters.Add(new OracleParameter("tag", OracleDbType.Varchar2) { Value = tag });
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+
+        public async Task<DataTable> GetPipeRoutesAsync(CancellationToken ct = default)
+        {
+            await OracleConnectionFactory.GetConnectionAsync(ct).ConfigureAwait(false);
+            var conn = OracleConnectionFactory.GetConnection();
+            using var cmd = new OracleCommand("SELECT * FROM PIPE_ROUTES", conn);
+            var dt = new DataTable();
+            using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            dt.Load(reader);
+            return dt;
+        }
+    }
+        {
+            var conn = OracleConnectionFactory.GetConnection();
+            // Injection vulnerability
+            string sql = "SELECT * FROM INSTRUMENTS WHERE AREA='" + area + "'";
+            var cmd = new OracleCommand(sql, conn);
+            var da = new OracleDataAdapter(cmd);
+            var dt = new DataTable();
