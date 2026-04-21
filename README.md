@@ -45,7 +45,7 @@ The source codebase (`ADDS_Orig`) is **never modified**.
 | Adversarial evaluation | ✅ 4 accept / 10 revise / 0 reject |
 | Human review | ✅ All 14 approved |
 | Implementation planning | ✅ 14-step plan, dependency-ordered |
-| Implementation | ⏳ Not yet started |
+| Implementation | ✅ 14/14 changes applied — see `modernized` branch |
 
 ---
 
