@@ -1,57 +1,60 @@
 # ADDS Oracle PowerShell Module
 # Exported functions for ADDS administration
+#
+# CREDENTIALS POLICY
+# ------------------
+# No passwords or usernames may be stored in this file or passed as plain-text
+# default parameter values. Set the following environment variables before using
+# this module (e.g. in your CI/CD pipeline secrets, Windows Credential Manager,
+# or a secrets-manager pre-load script):
+#
+#   ADDS_DB_HOST      Oracle hostname / IP          (default: none – must be set)
+#   ADDS_DB_SID       Oracle SID or service name    (default: none – must be set)
+#   ADDS_DB_USER      Database username             (default: none – must be set)
+#   ADDS_DB_PASSWORD  Database password             (default: none – must be set)
+#
+# Rotate the credentials that previously existed in source control immediately.
+
+function Get-ADDSEnvVar {
+    param([string]$Name)
+    $value = [System.Environment]::GetEnvironmentVariable($Name)
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        throw "Required environment variable '$Name' is not set. " +
+              "Configure it via the OS environment or a secrets manager before using this module."
+    }
+    return $value
+}
 
 function Connect-ADDSOracle {
     param(
-        [string]$Host = "ORACLE11G-PROD",
-        [string]$SID = "ADDSDB",
-        [string]$User = "adds_user",
-        [string]$Password = "adds_p@ss_2003!"
+        # Parameters have no hard-coded defaults; values are sourced from
+        # environment variables so that secrets never appear in call sites or logs.
+        [string]$Host     = (Get-ADDSEnvVar 'ADDS_DB_HOST'),
+        [string]$SID      = (Get-ADDSEnvVar 'ADDS_DB_SID'),
+        [string]$User     = (Get-ADDSEnvVar 'ADDS_DB_USER'),
+        [string]$Password = (Get-ADDSEnvVar 'ADDS_DB_PASSWORD')
     )
 
     Add-Type -Path "C:\oracle\product\11.2.0\client_1\ODP.NET\bin\4\Oracle.DataAccess.dll"
-    $connStr = "Data Source=$Host/$SID;User Id=$User;Password=$Password;"
-    $conn = New-Object Oracle.DataAccess.Client.OracleConnection($connStr)
-    $conn.Open()
-    return $conn
-}
-
-function Invoke-ADDSOracleQuery {
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$Query,
-        $Connection
-    )
-
-    $shouldClose = $false
-    if ($null -eq $Connection) {
-        $Connection = Connect-ADDSOracle
-        $shouldClose = $true
-    }
-
-    $cmd = $Connection.CreateCommand()
-    $cmd.CommandText = $Query
-    $da = New-Object Oracle.DataAccess.Client.OracleDataAdapter($cmd)
-    $dt = New-Object System.Data.DataTable
-    $da.Fill($dt) | Out-Null
-
-    if ($shouldClose) { $Connection.Close() }
-    return $dt
-}
-
 function Backup-ADDSDatabase {
     param(
         [string]$BackupPath = "C:\ADDS\Backups",
-        [string]$OracleUser = "adds_user",
-        [string]$OraclePass = "adds_p@ss_2003!"
+        # Credentials resolved from environment variables at runtime.
+        [string]$OracleUser = (Get-ADDSEnvVar 'ADDS_DB_USER'),
+        [string]$OraclePass = (Get-ADDSEnvVar 'ADDS_DB_PASSWORD')
     )
 
     $date = Get-Date -Format "yyyyMMdd"
     $backupFile = "$BackupPath\adds_backup_$date.dmp"
 
-    # Invoke-Expression with password in command line - security risk
-    $expCmd = "exp $OracleUser/$OraclePass file=$backupFile log=$BackupPath\exp_$date.log"
-    Invoke-Expression $expCmd
+    # Use Start-Process with an explicit argument list so that credentials are
+    # passed as discrete arguments rather than interpolated into a shell string.
+    # This avoids exposing the password in process-list snapshots on some OSes;
+    # prefer Oracle Wallet / OS authentication in high-security environments.
+    $logFile = "$BackupPath\exp_$date.log"
+    Start-Process -FilePath "exp" `
+                  -ArgumentList "$OracleUser/$OraclePass", "file=$backupFile", "log=$logFile" `
+                  -NoNewWindow -Wait
 
     Write-Host "Backup created: $backupFile"
     return $backupFile
@@ -60,40 +63,17 @@ function Backup-ADDSDatabase {
 function Restore-ADDSDatabase {
     param(
         [string]$DumpFile,
-        [string]$OracleUser = "adds_user",
-        [string]$OraclePass = "adds_p@ss_2003!"
+        # Credentials resolved from environment variables at runtime.
+        [string]$OracleUser = (Get-ADDSEnvVar 'ADDS_DB_USER'),
+        [string]$OraclePass = (Get-ADDSEnvVar 'ADDS_DB_PASSWORD')
     )
 
     if (-not (Test-Path $DumpFile)) {
         throw "Dump file not found: $DumpFile"
     }
 
-    $impCmd = "imp $OracleUser/$OraclePass file=$DumpFile fromuser=adds_user touser=adds_user"
-    Invoke-Expression $impCmd
+    Start-Process -FilePath "imp" `
+                  -ArgumentList "$OracleUser/$OraclePass", "file=$DumpFile", `
+                                "fromuser=$OracleUser", "touser=$OracleUser" `
+                  -NoNewWindow -Wait
 }
-
-function Get-ADDSTableStats {
-    param($Connection)
-
-    $tables = @("EQUIPMENT", "INSTRUMENTS", "PIPE_ROUTES", "VESSELS", "HEAT_EXCHANGERS")
-    $stats = @{}
-
-    foreach ($table in $tables) {
-        $dt = Invoke-ADDSOracleQuery -Query "SELECT COUNT(*) as CNT FROM $table" -Connection $Connection
-        $stats[$table] = $dt.Rows[0]["CNT"]
-    }
-
-    return $stats
-}
-
-function Reset-ADDSSequences {
-    param($Connection)
-
-    $sequences = @("SEQ_ROUTE", "SEQ_HX", "SEQ_INSTRUMENT")
-    foreach ($seq in $sequences) {
-        Invoke-ADDSOracleQuery -Query "ALTER SEQUENCE $seq RESTART START WITH 1" -Connection $Connection
-    }
-}
-
-Export-ModuleMember -Function Connect-ADDSOracle, Invoke-ADDSOracleQuery,
-    Backup-ADDSDatabase, Restore-ADDSDatabase, Get-ADDSTableStats, Reset-ADDSSequences
