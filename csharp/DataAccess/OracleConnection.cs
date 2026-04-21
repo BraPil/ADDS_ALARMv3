@@ -1,145 +1,134 @@
 // ADDS Oracle Data Access Layer
-// .NET Framework 4.5 / Oracle.DataAccess 11.2 (ODP.NET unmanaged)
-// TODO: still using OCI8 for some legacy stored proc calls
+// Modernized: ODP.NET managed 19c, credentials externalized, SQL parameterized, async/await
 
 using System;
 using System.Data;
-using Oracle.DataAccess.Client;   // ODP.NET unmanaged - deprecated
-using Oracle.DataAccess.Types;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Oracle.ManagedDataAccess.Client;   // ODP.NET managed 19c
 
 namespace ADDS.DataAccess
 {
-        private const string PASS = "adds_p@ss_2003!";  // plaintext
+    public class OracleConnectionFactory
+    {
+        private static string _connectionString;
 
-        private static OracleConnection _sharedConnection;
-        private static readonly ILogger _logger =
-            LoggerFactory.GetLogger<OracleConnectionFactory>();
+        public static void Configure(IConfiguration config)
+        {
+            // Credentials loaded from environment / appsettings — never hardcoded
+            var host = config["Oracle:Host"] ?? Environment.GetEnvironmentVariable("ADDS_ORACLE_HOST");
+            var port = config["Oracle:Port"] ?? Environment.GetEnvironmentVariable("ADDS_ORACLE_PORT") ?? "1521";
+            var sid  = config["Oracle:Sid"]  ?? Environment.GetEnvironmentVariable("ADDS_ORACLE_SID");
+            var user = config["Oracle:User"] ?? Environment.GetEnvironmentVariable("ADDS_ORACLE_USER");
+            var pass = config["Oracle:Password"] ?? Environment.GetEnvironmentVariable("ADDS_ORACLE_PASS");
+
+            _connectionString =
+                $"Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={host})(PORT={port}))" +
+                $"(CONNECT_DATA=(SID={sid})));User Id={user};Password={pass};";
+        }
 
         public static OracleConnection GetConnection()
         {
-            if (_sharedConnection == null || _sharedConnection.State == ConnectionState.Closed)
-            {
-                _logger.LogInformation(
-                    "OracleConnectionFactory.GetConnection: Opening new connection to {Host}:{Port}/{Sid} as {User}.",
-                    HOST, PORT, SID, USER);
-                string connStr = $"Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)" +
-                                 $"(HOST={HOST})(PORT={PORT}))(CONNECT_DATA=(SID={SID})));" +
-                                 $"User Id={USER};Password={PASS};";
-                _sharedConnection = new OracleConnection(connStr);
-                try
-                {
-                    _sharedConnection.Open();
-                    _logger.LogInformation(
-                        "OracleConnectionFactory.GetConnection: Connection opened successfully (State={State}).",
-                        _sharedConnection.State);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex,
-                        "OracleConnectionFactory.GetConnection: Failed to open Oracle connection to {Host}:{Port}/{Sid}. Error: {Message}",
-                        HOST, PORT, SID, ex.Message);
-                    throw;
-                }
-            }
-            else
-            {
-                _logger.LogDebug("OracleConnectionFactory.GetConnection: Reusing existing connection (State={State}).", _sharedConnection.State);
-            }
-            return _sharedConnection;
+            if (_connectionString == null)
+                throw new InvalidOperationException("OracleConnectionFactory.Configure() must be called at startup.");
+            var conn = new OracleConnection(_connectionString);
+            conn.Open();
+            return conn;
         }
 
-        public static void CloseConnection()
+        public static async Task<OracleConnection> GetConnectionAsync()
         {
-            if (_sharedConnection != null && _sharedConnection.State == ConnectionState.Open)
-            {
-                _logger.LogInformation("OracleConnectionFactory.CloseConnection: Closing shared Oracle connection.");
-                _sharedConnection.Close();
-                _sharedConnection.Dispose();
-                _sharedConnection = null;
-                _logger.LogInformation("OracleConnectionFactory.CloseConnection: Shared Oracle connection closed and disposed.");
-            }
+            if (_connectionString == null)
+                throw new InvalidOperationException("OracleConnectionFactory.Configure() must be called at startup.");
+            var conn = new OracleConnection(_connectionString);
+            await conn.OpenAsync();
+            return conn;
         }
     }
+
     public class EquipmentRepository
     {
-        private static readonly ILogger _logger =
-            LoggerFactory.GetLogger<EquipmentRepository>();
+        private readonly ILogger<EquipmentRepository> _logger;
 
-        public DataTable GetAllEquipment()
+        public EquipmentRepository(ILogger<EquipmentRepository> logger)
         {
-            _logger.LogDebug("EquipmentRepository.GetAllEquipment: Querying all equipment records.");
-            var conn = OracleConnectionFactory.GetConnection();
-            var cmd = new OracleCommand("SELECT * FROM EQUIPMENT ORDER BY TAG", conn);
-            var adapter = new OracleDataAdapter(cmd);
+            _logger = logger;
+        }
+
+        public async Task<DataTable> GetAllEquipmentAsync()
+        {
+            using var conn = await OracleConnectionFactory.GetConnectionAsync();
+            using var cmd = new OracleCommand("SELECT * FROM EQUIPMENT ORDER BY TAG", conn);
+            using var adapter = new OracleDataAdapter(cmd);
             var dt = new DataTable();
-            adapter.Fill(dt);
-            _logger.LogInformation("EquipmentRepository.GetAllEquipment: Retrieved {RowCount} equipment records.", dt.Rows.Count);
+            await Task.Run(() => adapter.Fill(dt));
+            _logger.LogInformation("GetAllEquipment returned {Count} rows", dt.Rows.Count);
             return dt;
         }
 
-        public void SaveEquipment(string tag, string type, string model)
+        public async Task SaveEquipmentAsync(string tag, string type, string model)
         {
-            _logger.LogInformation("EquipmentRepository.SaveEquipment: Inserting equipment TAG={Tag}, TYPE={Type}, MODEL={Model}.", tag, type, model);
-            var conn = OracleConnectionFactory.GetConnection();
-            // Raw string concatenation - SQL injection risk
-            var sql = $"INSERT INTO EQUIPMENT(TAG,TYPE,MODEL,CREATED_DATE) VALUES('{tag}','{type}','{model}',SYSDATE)";
-            var cmd = new OracleCommand(sql, conn);
-            cmd.ExecuteNonQuery();
-            _logger.LogInformation("EquipmentRepository.SaveEquipment: Equipment TAG={Tag} inserted successfully.", tag);
+            using var conn = await OracleConnectionFactory.GetConnectionAsync();
+            using var cmd = new OracleCommand(
+                "INSERT INTO EQUIPMENT(TAG,TYPE,MODEL,CREATED_DATE) VALUES(:tag,:type,:model,SYSDATE)", conn);
+            cmd.Parameters.Add(new OracleParameter("tag",   tag));
+            cmd.Parameters.Add(new OracleParameter("type",  type));
+            cmd.Parameters.Add(new OracleParameter("model", model));
+            await cmd.ExecuteNonQueryAsync();
+            _logger.LogInformation("SaveEquipment: inserted {Tag}", tag);
         }
 
-        public void DeleteEquipment(string tag)
+        public async Task DeleteEquipmentAsync(string tag)
         {
-            _logger.LogInformation("EquipmentRepository.DeleteEquipment: Deleting equipment TAG={Tag}.", tag);
-            var conn = OracleConnectionFactory.GetConnection();
-            var sql = $"DELETE FROM EQUIPMENT WHERE TAG='{tag}'";
-            var cmd = new OracleCommand(sql, conn);
-            cmd.ExecuteNonQuery();
-            _logger.LogInformation("EquipmentRepository.DeleteEquipment: Equipment TAG={Tag} deleted.", tag);
+            using var conn = await OracleConnectionFactory.GetConnectionAsync();
+            using var cmd = new OracleCommand("DELETE FROM EQUIPMENT WHERE TAG=:tag", conn);
+            cmd.Parameters.Add(new OracleParameter("tag", tag));
+            await cmd.ExecuteNonQueryAsync();
+            _logger.LogInformation("DeleteEquipment: removed {Tag}", tag);
         }
 
-        public DataTable GetPipeRoutes()
+        public async Task<DataTable> GetPipeRoutesAsync()
         {
-            _logger.LogDebug("EquipmentRepository.GetPipeRoutes: Querying pipe routes.");
-            var conn = OracleConnectionFactory.GetConnection();
-            var cmd = new OracleCommand("SELECT * FROM PIPE_ROUTES", conn);
-            var da = new OracleDataAdapter(cmd);
+            using var conn = await OracleConnectionFactory.GetConnectionAsync();
+            using var cmd = new OracleCommand("SELECT * FROM PIPE_ROUTES", conn);
+            using var da = new OracleDataAdapter(cmd);
             var dt = new DataTable();
-            da.Fill(dt);
-            _logger.LogInformation("EquipmentRepository.GetPipeRoutes: Retrieved {RowCount} pipe route records.", dt.Rows.Count);
+            await Task.Run(() => da.Fill(dt));
             return dt;
         }
     }
 
     public class InstrumentRepository
     {
-        private static readonly ILogger _logger =
-            LoggerFactory.GetLogger<InstrumentRepository>();
+        private readonly ILogger<InstrumentRepository> _logger;
 
-        public DataTable GetInstrumentsByArea(string area)
+        public InstrumentRepository(ILogger<InstrumentRepository> logger)
         {
-            _logger.LogDebug("InstrumentRepository.GetInstrumentsByArea: Querying instruments for AREA={Area}.", area);
-            var conn = OracleConnectionFactory.GetConnection();
-            // Injection vulnerability
-            string sql = "SELECT * FROM INSTRUMENTS WHERE AREA='" + area + "'";
-            var cmd = new OracleCommand(sql, conn);
-            var da = new OracleDataAdapter(cmd);
+            _logger = logger;
+        }
+
+        public async Task<DataTable> GetInstrumentsByAreaAsync(string area)
+        {
+            using var conn = await OracleConnectionFactory.GetConnectionAsync();
+            using var cmd = new OracleCommand(
+                "SELECT * FROM INSTRUMENTS WHERE AREA=:area", conn);
+            cmd.Parameters.Add(new OracleParameter("area", area));
+            using var da = new OracleDataAdapter(cmd);
             var dt = new DataTable();
-            da.Fill(dt);
-            _logger.LogInformation("InstrumentRepository.GetInstrumentsByArea: Retrieved {RowCount} instruments for AREA={Area}.", dt.Rows.Count, area);
+            await Task.Run(() => da.Fill(dt));
             return dt;
         }
 
-        public void UpdateInstrument(string tag, string value)
+        public async Task UpdateInstrumentAsync(string tag, string value)
         {
-            _logger.LogInformation("InstrumentRepository.UpdateInstrument: Updating TAG={Tag} with new value.", tag);
-            var conn = OracleConnectionFactory.GetConnection();
-            string sql = "UPDATE INSTRUMENTS SET LAST_VALUE='" + value +
-                         "', UPDATED=SYSDATE WHERE TAG='" + tag + "'";
-            var cmd = new OracleCommand(sql, conn);
-            cmd.ExecuteNonQuery();
-            _logger.LogInformation("InstrumentRepository.UpdateInstrument: TAG={Tag} updated successfully.", tag);
+            using var conn = await OracleConnectionFactory.GetConnectionAsync();
+            using var cmd = new OracleCommand(
+                "UPDATE INSTRUMENTS SET LAST_VALUE=:val, UPDATED=SYSDATE WHERE TAG=:tag", conn);
+            cmd.Parameters.Add(new OracleParameter("val", value));
+            cmd.Parameters.Add(new OracleParameter("tag", tag));
+            await cmd.ExecuteNonQueryAsync();
+            _logger.LogInformation("UpdateInstrument: tag={Tag}", tag);
         }
     }
 }

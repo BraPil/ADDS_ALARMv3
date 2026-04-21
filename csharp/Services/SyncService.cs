@@ -1,118 +1,125 @@
-// ADDS Sync Service - background Oracle synchronization
-// .NET Framework 4.5 - no async/await, uses BackgroundWorker
+// ADDS Sync Service
+// Modernized: BackgroundWorker replaced with async/await Task, structured logging
 
 using System;
-using System.ComponentModel;
 using System.Data;
-using ADDS.DataAccess;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using ADDS.DataAccess;
 
 namespace ADDS.Services
 {
     public class SyncService
     {
-        private static BackgroundWorker _worker;
-        private static bool _isRunning;
-        private static readonly ILogger _logger =
-            LoggerFactory.GetLogger<SyncService>();
+        private readonly ILogger<SyncService> _logger;
+        private readonly StoredProcedureRunner _sprRunner;
+        private readonly EquipmentRepository _equipRepo;
+        private CancellationTokenSource _cts;
 
-        public static void StartSync()
+        public SyncService(
+            ILogger<SyncService> logger,
+            StoredProcedureRunner sprRunner,
+            EquipmentRepository equipRepo)
         {
-            if (_isRunning) return;
-            _logger.LogInformation("SyncService: Starting background Oracle sync.");
-            _worker = new BackgroundWorker();
-            _worker.DoWork += DoSync;
-            _worker.RunWorkerCompleted += SyncComplete;
-            _worker.RunWorkerAsync();
-            _isRunning = true;
+            _logger = logger;
+            _sprRunner = sprRunner;
+            _equipRepo = equipRepo;
         }
 
-        private static void DoSync(object sender, DoWorkEventArgs e)
-        {
-            _logger.LogDebug("SyncService.DoSync: Acquiring Oracle connection.");
-            var conn = OracleConnectionFactory.GetConnection();
-            _logger.LogDebug("SyncService.DoSync: Oracle connection acquired. Querying changed records.");
-            // Pull all changed records - no change tracking, full table scan
-            var dt = StoredProcedureRunner.RunQuery(
-                "SELECT * FROM EQUIPMENT WHERE MODIFIED > SYSDATE - 1/24");
+        public bool IsRunning => _cts != null && !_cts.IsCancellationRequested;
 
-            _logger.LogInformation("SyncService.DoSync: Retrieved {RowCount} changed equipment records.", dt.Rows.Count);
+        public void StartSync()
+        {
+            if (IsRunning)
+            {
+                _logger.LogWarning("SyncService.StartSync: already running, ignoring.");
+                return;
+            }
+            _cts = new CancellationTokenSource();
+            _ = RunSyncLoopAsync(_cts.Token);
+            _logger.LogInformation("SyncService started.");
+        }
+
+        public void StopSync()
+        {
+            _cts?.Cancel();
+            _logger.LogInformation("SyncService stop requested.");
+        }
+
+        private async Task RunSyncLoopAsync(CancellationToken ct)
+        {
+            try
+            {
+                while (!ct.IsCancellationRequested)
+                {
+                    await DoSyncAsync(ct);
+                    await Task.Delay(TimeSpan.FromMinutes(1), ct);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("SyncService loop cancelled.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SyncService loop failed.");
+            }
+        }
+
+        private async Task DoSyncAsync(CancellationToken ct)
+        {
+            _logger.LogInformation("SyncService: beginning sync pass.");
+            var dt = await _equipRepo.GetAllEquipmentAsync();
 
             foreach (DataRow row in dt.Rows)
             {
-                SyncEquipmentRecord(row);
+                ct.ThrowIfCancellationRequested();
+                await SyncEquipmentRecordAsync(row);
             }
-
-            _logger.LogInformation("SyncService.DoSync: Sync pass completed successfully.");
+            _logger.LogInformation("SyncService: sync pass complete, {Count} records.", dt.Rows.Count);
         }
 
-        private static void SyncEquipmentRecord(DataRow row)
+        private async Task SyncEquipmentRecordAsync(DataRow row)
         {
-            var tag = row["TAG"].ToString();
+            var tag  = row["TAG"].ToString();
             var type = row["TYPE"].ToString();
-            _logger.LogDebug("SyncService.SyncEquipmentRecord: Updating cache for TAG={Tag}, TYPE={Type}.", tag, type);
-            StoredProcedureRunner.RunProc("ADDS_PKG.UPDATE_EQUIPMENT_CACHE", tag, type);
-            _logger.LogDebug("SyncService.SyncEquipmentRecord: Cache updated for TAG={Tag}.", tag);
-        }
-
-        private static void SyncComplete(object sender, RunWorkerCompletedEventArgs e)
-        {
-            _isRunning = false;
-            if (e.Error != null)
-            {
-                _logger.LogError(e.Error, "SyncService.SyncComplete: Sync failed with exception: {Message}", e.Error.Message);
-                System.Diagnostics.EventLog.WriteEntry("ADDS",
-                    $"Sync failed: {e.Error.Message}",
-                    System.Diagnostics.EventLogEntryType.Error);
-            }
-            else
-            {
-                _logger.LogInformation("SyncService.SyncComplete: Background sync worker completed without errors.");
-            }
-        }
-
-        public static void StopSync()
-        {
-            _logger.LogInformation("SyncService.StopSync: Stopping background sync worker.");
-            if (_worker != null && _worker.IsBusy)
-                _worker.Dispose();
-            _isRunning = false;
-            _logger.LogInformation("SyncService.StopSync: Sync worker stopped.");
+            await _sprRunner.RunProcAsync(
+                "ADDS_PKG.UPDATE_EQUIPMENT_CACHE",
+                new Oracle.ManagedDataAccess.Client.OracleParameter("tag",  tag),
+                new Oracle.ManagedDataAccess.Client.OracleParameter("type", type));
         }
     }
 
     public class ReportService
     {
-        private static readonly ILogger _logger =
-            LoggerFactory.GetLogger<ReportService>();
+        private readonly ILogger<ReportService> _logger;
+        private readonly EquipmentRepository _equipRepo;
 
-        public static void GenerateEquipmentReport(string outputPath)
+        public ReportService(ILogger<ReportService> logger, EquipmentRepository equipRepo)
         {
-            _logger.LogInformation("ReportService.GenerateEquipmentReport: Generating equipment report to '{OutputPath}'.", outputPath);
-            var dt = new EquipmentRepository().GetAllEquipment();
-            using (var writer = new System.IO.StreamWriter(outputPath))
-            {
-                writer.WriteLine("ADDS Equipment Report");
-                writer.WriteLine(new string('=', 60));
-                foreach (DataRow row in dt.Rows)
-                {
-                    writer.WriteLine($"{row["TAG"]}\t{row["TYPE"]}\t{row["MODEL"]}");
-                }
-            }
-            _logger.LogInformation("ReportService.GenerateEquipmentReport: Equipment report written with {RowCount} rows.", dt.Rows.Count);
+            _logger = logger;
+            _equipRepo = equipRepo;
         }
 
-        public static void GeneratePipeReport(string outputPath)
+        public async Task GenerateEquipmentReportAsync(string outputPath)
         {
-            _logger.LogInformation("ReportService.GeneratePipeReport: Generating pipe route report to '{OutputPath}'.", outputPath);
-            var dt = new EquipmentRepository().GetPipeRoutes();
-            using (var writer = new System.IO.StreamWriter(outputPath))
-            {
-                writer.WriteLine("ADDS Pipe Route Report");
-                foreach (DataRow row in dt.Rows)
-                    writer.WriteLine(row["TAG"] + "\t" + row["SPEC"]);
-            }
-            _logger.LogInformation("ReportService.GeneratePipeReport: Pipe route report written with {RowCount} rows.", dt.Rows.Count);
+            var dt = await _equipRepo.GetAllEquipmentAsync();
+            using var writer = new System.IO.StreamWriter(outputPath);
+            await writer.WriteLineAsync("ADDS Equipment Report");
+            await writer.WriteLineAsync(new string('=', 60));
+            foreach (DataRow row in dt.Rows)
+                await writer.WriteLineAsync($"{row["TAG"]}\t{row["TYPE"]}\t{row["MODEL"]}");
+            _logger.LogInformation("GenerateEquipmentReport: wrote {Path}", outputPath);
+        }
+
+        public async Task GeneratePipeReportAsync(string outputPath)
+        {
+            var dt = await _equipRepo.GetPipeRoutesAsync();
+            using var writer = new System.IO.StreamWriter(outputPath);
+            await writer.WriteLineAsync("ADDS Pipe Route Report");
+            foreach (DataRow row in dt.Rows)
+                await writer.WriteLineAsync($"{row["TAG"]}\t{row["SPEC"]}");
         }
     }
 }
