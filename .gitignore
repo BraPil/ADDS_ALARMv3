@@ -1,0 +1,5 @@
+# Keep all ALARMv3 artifacts — this repo IS the analysis output
+# Only ignore temp files
+*.pyc
+__pycache__/
+*.tmp
