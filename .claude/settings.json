@@ -1,0 +1,6 @@
+{
+  "enableAllProjectMcpServers": true,
+  "env": {
+    "ALARMV3_WORKSPACE": "/workspaces/ADDS_ALARMv3"
+  }
+}

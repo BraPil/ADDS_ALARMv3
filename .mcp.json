@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "alarmv3": {
+      "command": "/workspaces/ALARMv3/.venv/bin/alarmv3-mcp",
+      "env": {
+        "ALARMV3_WORKSPACE": "/workspaces/ADDS_ALARMv3"
+      }
+    }
+  }
+}
