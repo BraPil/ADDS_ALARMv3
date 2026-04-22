@@ -1,51 +1,89 @@
 # ADDS Codebase Wiki
-> Generated from direct source-file analysis — 2026-04-21  
-> All claims traceable to specific files and line numbers.
+> Last updated: 2026-04-22  
+> All claims sourced directly from the original commit (`cf22e8d`) unless explicitly labelled [modernized].  
+> Claims about domain purpose are separated from code facts — see §1.
+
+---
+
+## ⚠ Known analysis failures (read first)
+
+Previous versions of this wiki contained systematic inaccuracies. Documented here so they are not repeated:
+
+| Failure | Root cause |
+|---|---|
+| Domain description ("industrial plant design", "P&ID") was called out as wrong | No domain description exists in the code. Those labels were AI inference, not sourced from files. |
+| LOC reported as "509" | 509 = ALARMv3's *net code lines* (non-blank, non-comment). Gross line count of original is 1,485. These are different metrics. |
+| Functions like `adds-load-config` and `adds-sanitize-tag` described as original | These were added by ALARMv3 modernization. The original does not have them. |
+| `ADDSOracleModule.psm1` omitted | This file exists in the original but was deleted in the modernized branch. |
+| Vector search returns mid-function code bodies for domain queries | Chunking slices at symbol start/end lines — file-level headers (the most descriptive lines) fall before the first symbol and are not embedded. Queries about "what ADDS is" find code, not documentation. |
 
 ---
 
 ## 1. What is ADDS?
 
-**ADDS — Automated Drawing & Design System** (name sourced from `lisp/dialogs/main-menu.dcl:5`).
+**ADDS — Automated Drawing & Design System**  
+Source: `lisp/dialogs/main-menu.dcl:5` in original commit.
 
-ADDS is an AutoCAD plugin that lets engineers:
+**What the code confirms:**
+- An AutoCAD plugin (AutoLISP + C#) that lets users place named engineering objects into drawings via interactive commands
+- All placed objects are persisted to an Oracle database with tag identifiers and coordinate data
+- A background sync process keeps a local file cache synchronized with the Oracle data
+- The system has been in use since at least 1991 (schema DDL creation date); AutoLISP files carry modification dates of 1997 and 2000
 
-1. Place engineering objects (pumps, heat exchangers, tanks, vessels, pipes, instruments) into AutoCAD drawings using interactive commands
-2. Persist those objects — with tags, coordinates, types, and metadata — to an Oracle database via two separate interfaces (OADB for AutoLISP, ODP.NET for C#)
-3. Track instrument readings (the `INSTRUMENTS` table carries `LAST_VALUE` and `TIMESTAMP` columns — operational data, not just design geometry)
-4. Run nightly sync jobs via a Windows Service (`ADDSSyncService`) and a PowerShell batch that exports equipment XML and instrument CSVs to a local cache
-5. Manage drawing layers (8 standard layers: PIPE-STD, PIPE-INSULATED, VESSEL, INSTRUMENT, STRUCTURAL, ELECTRICAL, ADDS-ANNOTATION, ADDS-DIMENSION)
-6. Load block libraries from `C:\ADDS\Blocks\` by category
+**What the code does NOT confirm:**
+- The domain or industry the system serves — this is NOT stated anywhere in any source file, comment, or artifact in this repo
+- Whether the named object types (pump, heat exchanger, vessel, etc.) accurately represent the real-world objects the system manages, or are representative placeholders
 
-**What I can confirm from the code**: a drawing + data management tool for engineering objects with Oracle persistence and a background sync layer.  
-**What I cannot confirm from code alone**: the exact domain context (what type of facility, what discipline, what workflow it fits into). The system owner should supply that description.
+**What requires domain knowledge to answer (do not infer):**
+- What type of drawings ADDS produces
+- What business workflow ADDS supports
+- Whether the equipment types reflect the real deployment
 
 ---
 
 ## 2. File Inventory
 
-| File | Lines | Language | Role |
-|---|---|---|---|
-| `lisp/dialogs/dialog-utils.lsp` | 59 | AutoLISP | Entry point (`C:ADDS`), dialog dispatch, settings dialog |
-| `lisp/dialogs/main-menu.dcl` | 88 | DCL | Main menu + settings dialog UI definitions |
-| `lisp/drawing/draw-commands.lsp` | 96 | AutoLISP | Draw pipe, vessel, instrument commands; global state init; config loader |
-| `lisp/drawing/equipment.lsp` | 105 | AutoLISP | Place pump, HX, tank; equipment report; delete equipment |
-| `lisp/drawing/pipe-routing.lsp` | 116 | AutoLISP | Route pipe, list pipes, edit pipe; OADB connect/disconnect helpers; sanitize-tag |
-| `lisp/utils/db-utils.lsp` | 80 | AutoLISP | DB init, offline queue (db_queue.sql), flush queue, raw query |
-| `lisp/utils/string-utils.lsp` | 55 | AutoLISP | Trim, upper, split, replace, format-tag, validate-tag |
-| `csharp/AutoCAD/DrawingManager.cs` | 111 | C# | Draw line/circle/block/text via .NET API; save drawing; get layers |
-| `csharp/AutoCAD/BlockLibraryManager.cs` | 50 | C# | Load block library from category path; list available blocks |
-| `csharp/AutoCAD/LayerManager.cs` | 139 | C# | Create standard layers; freeze/thaw; purge unused |
-| `csharp/DataAccess/OracleConnection.cs` | 134 | C# | `OracleConnectionFactory`, `EquipmentRepository`, `InstrumentRepository` |
-| `csharp/DataAccess/StoredProcedures.cs` | 104 | C# | `StoredProcedureRunner`, `BulkDataLoader` (ODP.NET array binding) |
-| `csharp/Forms/MainForm.cs` | 129 | C# | `ADDSPaletteCommand`, `MainPaletteViewModel`, `MainPaletteView` (WPF MVVM) |
-| `csharp/Services/ProjectService.cs` | 72 | C# | Open/list/create projects in `PROJECTS` table |
-| `csharp/Services/SyncService.cs` | 125 | C# | `SyncService` (async loop, 1-min cadence); `ReportService` |
-| `powershell/db/sync-oracle.ps1` | 130 | PowerShell | Nightly sync: equipment XML cache + instrument CSV export; health check; alert email |
-| `powershell/deploy/deploy-adds.ps1` | 158 | PowerShell | Deploy: prerequisites check, file copy, config update, Oracle test, install Windows Service |
-| `sql/schema.sql` | 50 | SQL | DDL for EQUIPMENT, PIPE_ROUTES, INSTRUMENTS, VESSELS; two sequences |
-| `config/adds.config` | 9 | Config | Oracle host/port/SID, AutoCAD version, block library path, log path, unit system |
-| **Total** | **1,810** | | 20 files, 5 languages |
+### Original codebase (`cf22e8d` — ground truth)
+
+| File | Gross lines | Net code | Language | Role |
+|---|---|---|---|---|
+| `lisp/dialogs/dialog-utils.lsp` | 59 | — | AutoLISP | Entry point (`C:ADDS`), menu dispatch, settings |
+| `lisp/dialogs/main-menu.dcl` | 88 | — | DCL | Main menu + settings dialog definitions |
+| `lisp/drawing/draw-commands.lsp` | 68 | — | AutoLISP | Draw pipe/vessel/instrument; global state; logging |
+| `lisp/drawing/equipment.lsp` | 85 | — | AutoLISP | Place pump/HX/tank; equipment report; delete |
+| `lisp/drawing/pipe-routing.lsp` | 78 | — | AutoLISP | Route pipe; OADB connect/disconnect; list/edit pipes |
+| `lisp/utils/db-utils.lsp` | 80 | — | AutoLISP | DB init, offline queue, flush, raw query |
+| `lisp/utils/string-utils.lsp` | 55 | — | AutoLISP | Trim, upper, split, replace, format-tag, validate-tag |
+| `csharp/AutoCAD/DrawingManager.cs` | 122 | — | C# | COM/ActiveX AutoCAD automation; DrawingManager + BlockLibraryManager (same file) |
+| `csharp/AutoCAD/LayerManager.cs` | 58 | — | C# | Layer freeze/thaw/purge |
+| `csharp/DataAccess/OracleConnection.cs` | 110 | — | C# | OracleConnectionFactory (singleton, unmanaged ODP.NET 11.2), EquipmentRepository, InstrumentRepository |
+| `csharp/DataAccess/StoredProcedures.cs` | 84 | — | C# | StoredProcedureRunner, BulkDataLoader |
+| `csharp/Forms/MainForm.cs` | 94 | — | C# | WinForms MainForm; UI-thread blocking sync; SQL injection in search |
+| `csharp/Services/ProjectService.cs` | 45 | — | C# | OpenProject, GetProjectList, CreateProject |
+| `csharp/Services/SyncService.cs` | 92 | — | C# | BackgroundWorker-based sync (no async) |
+| `powershell/admin/ADDSOracleModule.psm1` | 99 | — | PowerShell | Connect-ADDSOracle, Invoke-ADDSOracleQuery, Backup/Restore-ADDSDatabase, Get-ADDSTableStats, Reset-ADDSSequences |
+| `powershell/db/sync-oracle.ps1` | 106 | — | PowerShell | Nightly sync: equipment cache + instrument CSV; alerts |
+| `powershell/deploy/deploy-adds.ps1` | 103 | — | PowerShell | Deploy prerequisites check, file copy, Oracle test, install service |
+| `sql/schema.sql` | 50 | — | SQL | DDL: EQUIPMENT, PIPE_ROUTES, INSTRUMENTS, VESSELS + 2 sequences |
+| `config/adds.config` | 9 | — | Config | Oracle host/port/SID/user/pass (plaintext), AutoCAD version, block library, log path, units |
+| **Total original** | **1,485** | **~509** | | 19 files, 5 languages |
+
+`~509` net code lines = ALARMv3 count excluding blank lines and comments (from `summary.json`).
+
+### Differences in the modernized branch (main)
+
+| Change | Detail |
+|---|---|
+| `ADDSOracleModule.psm1` **deleted** | No replacement; its backup/restore/stats functionality is gone |
+| `BlockLibraryManager` **extracted** | Split out of `DrawingManager.cs` into its own file; functionality same |
+| `draw-commands.lsp` **+28 lines** | `adds-load-config` function added (reads config file for Oracle globals); not in original |
+| `equipment.lsp` / `pipe-routing.lsp` | `adds-sanitize-tag` added to both; not in original |
+| `pipe-routing.lsp`: `adds-oadb-connect` | Original hardcodes `"adds_user"` / `"adds_pass_plaintext"`; modernized reads env vars |
+| Oracle driver (C#) | Unmanaged `Oracle.DataAccess` 11.2 → managed `Oracle.ManagedDataAccess.Client` 19c |
+| AutoCAD API (C#) | COM/ActiveX (`Autodesk.AutoCAD.Interop`) → native .NET (`AcMgd.dll`) |
+| UI (C#) | WinForms `MainForm` → WPF `PaletteSet` MVVM |
+| Async (C#) | `BackgroundWorker` → `async/await` + `CancellationTokenSource` |
+| Modernized gross LOC | 1,810 (20 files) |
 
 ---
 
@@ -53,247 +91,309 @@ ADDS is an AutoCAD plugin that lets engineers:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  AutoCAD Process                                             │
+│  AutoCAD Process (AutoCAD 2018 per config; R14 origin)       │
 │                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  AutoLISP Layer                                      │   │
-│  │  C:ADDS → DCL menu → C:ADDS-DRAW-*, C:ADDS-PLACE-* │   │
-│  │  db-utils: OADB connect/queue/flush                  │   │
-│  │  draw-commands: global state, config loader          │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                │ ads_oadb_* (Oracle 7/8 OADB ADS API)       │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  C# Plugin (ADDS.dll)                               │   │
-│  │  DrawingManager   — .NET AutoCAD API                │   │
-│  │  LayerManager     — layer create/freeze/purge        │   │
-│  │  BlockLibraryMgr  — .dwg block loading              │   │
-│  │  ADDSPaletteCmd   — WPF PaletteSet (equipment grid) │   │
-│  │  EquipmentRepository / InstrumentRepository          │   │
-│  │  SyncService      — 1-min async loop                │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                │ ODP.NET managed (Oracle.ManagedDataAccess)  │
+│  AutoLISP Layer                                             │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │ C:ADDS → DCL menu → C:ADDS-DRAW-*                  │    │
+│  │                    → C:ADDS-PLACE-*                 │    │
+│  │                    → C:ADDS-ROUTE-PIPE              │    │
+│  │                    → C:ADDS-EQUIPMENT-REPORT        │    │
+│  │ db-utils: OADB init / offline queue / flush         │    │
+│  └────────────────────────────────────────────────────┘    │
+│       │ ads_oadb_connect/execute/query/fetchrow/disconnect   │
+│       │ (Oracle 7/8 OADB ADS API — embedded in AutoCAD)     │
+│                                                             │
+│  C# Plugin (ADDS.dll)                                       │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │ DrawingManager  — COM/ActiveX AutoCAD automation    │    │
+│  │ BlockLibraryMgr — loads .dwg blocks from library    │    │
+│  │ LayerManager    — layer setup/freeze/purge          │    │
+│  │ MainForm        — WinForms UI; equipment grid        │    │
+│  │ EquipmentRepository / InstrumentRepository           │    │
+│  │ SyncService     — BackgroundWorker sync loop         │    │
+│  └────────────────────────────────────────────────────┘    │
+│       │ Oracle.DataAccess.Client (ODP.NET unmanaged 11.2)   │
 └─────────────────────────────────────────────────────────────┘
                  │
-    ┌────────────┴────────────┐
-    │    Oracle Database      │
-    │  EQUIPMENT              │
-    │  PIPE_ROUTES            │
-    │  INSTRUMENTS            │
-    │  VESSELS                │
-    │  PROJECTS (inferred)    │
-    │  HEAT_EXCHANGERS (inferred) │
-    └────────────────────────┘
+    ┌────────────┴──────────────────┐
+    │    Oracle 11g Database        │
+    │  EQUIPMENT                    │
+    │  PIPE_ROUTES                  │
+    │  INSTRUMENTS (incl. readings) │
+    │  VESSELS                      │
+    │  HEAT_EXCHANGERS (no DDL)     │
+    │  PROJECTS       (no DDL)      │
+    └───────────────────────────────┘
                  │
-    ┌────────────┴──────────────────────────────┐
-    │  Windows Service: ADDSSyncService          │
-    │  sync-oracle.ps1 (nightly Task Scheduler)  │
-    │  → C:\ADDS\Cache\equipment_<tag>.xml       │
-    │  → C:\ADDS\Cache\instruments.csv           │
-    └───────────────────────────────────────────┘
+    ┌────────────┴──────────────────────────────────┐
+    │  ADDSSyncService (Windows Service)             │
+    │  sync-oracle.ps1 (nightly Task Scheduler)      │
+    │  ADDSOracleModule.psm1 (admin functions)       │
+    └───────────────────────────────────────────────┘
 ```
 
 ---
 
-## 4. User Entry Points
-
-### Interactive (AutoCAD command line)
+## 4. Entry Point and Command Flow (original code)
 
 ```
-Type: ADDS
+AutoCAD startup: LISP files loaded in this dependency order:
+  1. string-utils.lsp      (no deps)
+  2. db-utils.lsp          (depends on adds-oadb-connect from pipe-routing.lsp)
+  3. draw-commands.lsp     (sets global state; defines draw commands)
+  4. pipe-routing.lsp      (defines adds-oadb-connect and routing commands)
+  5. equipment.lsp         (defines placement commands)
+  6. dialog-utils.lsp      (defines C:ADDS, depends on all above)
+
+User types: ADDS
   → C:ADDS (dialog-utils.lsp:55)
-      1. adds-db-init  (connects OADB, sets *ADDS-USER-NAME*)
-      2. adds-show-main-menu  (loads main-menu.dcl)
-         Menu buttons:
-         [Draw Pipe]            → C:ADDS-DRAW-PIPE
-         [Draw Vessel]          → C:ADDS-DRAW-VESSEL
-         [Place Pump]           → C:ADDS-PLACE-PUMP
-         [Place Heat Exchanger] → C:ADDS-PLACE-HEAT-EXCHANGER
-         [Route Pipe]           → C:ADDS-ROUTE-PIPE
-         [Equipment Report]     → C:ADDS-EQUIPMENT-REPORT
-         [Sync Database]        → adds-db-flush-queue
-         [Settings]             → adds-show-settings
+      1. adds-db-init (db-utils.lsp:4)
+           → adds-oadb-connect(host, port, sid)  ← defined in pipe-routing.lsp
+           → ads_oadb_connect(conn-str, "adds_user", "adds_pass_plaintext")  ← hardcoded
+           → sets *ADDS-DB-CONNECTION*, *ADDS-USER-NAME*
+      2. adds-show-main-menu
+           → load_dialog "adds-main-menu.dcl"
+           → new_dialog "adds_main_menu"
+           → action_tile registrations
+           → start_dialog → returns integer choice
+      3. adds-dispatch-menu-result(choice)
+           1 → C:ADDS-DRAW-PIPE
+           2 → C:ADDS-DRAW-VESSEL
+           3 → C:ADDS-PLACE-PUMP
+           4 → C:ADDS-PLACE-HEAT-EXCHANGER
+           5 → C:ADDS-ROUTE-PIPE
+           6 → C:ADDS-EQUIPMENT-REPORT
+           7 → adds-db-flush-queue
+           8 → adds-show-settings
 ```
 
-Each `C:ADDS-*` function can also be invoked directly at the AutoCAD command prompt (all are `defun C:*`).
-
-### Background / Scheduled
-
-- `ADDSSyncService` Windows Service: `SyncService.RunSyncLoopAsync()` — every 1 minute, calls `ADDS_PKG.UPDATE_EQUIPMENT_CACHE` stored procedure for each equipment record (`SyncService.cs:50–68`)
-- `sync-oracle.ps1`: Windows Task Scheduler, nightly — syncs last-hour equipment changes + all instrument readings to local cache; sends SMTP alert on failure (`sync-oracle.ps1:117–130`)
+**Load-order dependency note**: `adds-db-init` calls `adds-oadb-connect`, which is only defined in `pipe-routing.lsp`. If the LISP files are not loaded in the correct order, `C:ADDS` fails at the DB init step.
 
 ---
 
-## 5. Oracle Database Schema
+## 5. Oracle Connectivity (original)
 
-From `sql/schema.sql` (DDL dated 1991, last modified 2008):
-
-```sql
-EQUIPMENT    (TAG pk, TYPE, MODEL, LOCATION, CREATED_BY, CREATED_DATE, MODIFIED)
-PIPE_ROUTES  (ROUTE_ID pk via SEQ_ROUTE, TAG, SPEC, START_PT, END_PT, LENGTH, CREATED_DATE)
-INSTRUMENTS  (TAG pk, INSTR_TYPE, AREA, POS_X, POS_Y, LAST_VALUE, TIMESTAMP,
-              CREATED_BY, CREATED_DATE, UPDATED)
-VESSELS      (TAG pk, CTR_X, CTR_Y, RADIUS, CREATED_BY, CREATED_DATE)
-```
-
-Notable issues in the DDL:
-- No foreign key constraints anywhere
-- No indexes on any columns other than PKs
-- `LOCATION` stored as `VARCHAR2(200)` (stringified coordinate pair, not X/Y columns)
-- `INSTRUMENTS.LAST_VALUE VARCHAR2(50)` — instrument reading stored as string
-
-**Tables referenced in code but absent from schema.sql:**
-- `HEAT_EXCHANGERS` — used in `equipment.lsp:64`
-- `PROJECTS` — used in `ProjectService.cs:26`
-
----
-
-## 6. Global State (AutoLISP)
-
-Defined in `draw-commands.lsp:84–96`. Set at load time, overridden by `adds-load-config`:
+### AutoLISP side — OADB (Oracle 7/8 ADS API)
 
 ```lisp
-*ADDS-DRAWING-SCALE*    ; default 1.0
-*ADDS-CURRENT-PROJECT*  ; nil until set
-*ADDS-DB-CONNECTION*    ; nil until adds-db-init
-*ADDS-USER-NAME*        ; "" until DB connect
-*ADDS-UNIT-SYSTEM*      ; "IMPERIAL"
-*ADDS-LAYER-PREFIX*     ; "ADDS-"
-*ADDS-ORACLE-HOST*      ; "ORACLE19C-PROD" (overridden from adds.config)
-*ADDS-ORACLE-PORT*      ; 1521
-*ADDS-ORACLE-SID*       ; "ADDSDB"
+; pipe-routing.lsp:18 — ORIGINAL (credentials hardcoded)
+(defun adds-oadb-connect (host port sid / conn-str)
+  (setq conn-str (strcat "DSN=ADDS_ORACLE;HOST=" host ";PORT=" (itoa port) ";SID=" sid))
+  (ads_oadb_connect conn-str "adds_user" "adds_pass_plaintext")
+)
 ```
 
-Config file (`C:\ADDS\adds.config`) is read by `adds-load-config` at LISP load time via AutoCAD's `open`/`read-line`.
+No parameterized queries — all SQL is string-concatenated. No injection mitigation in original.
+
+### C# side — ODP.NET unmanaged 11.2
+
+```csharp
+// OracleConnection.cs — ORIGINAL
+private const string PASS = "adds_p@ss_2003!";  // plaintext constant
+private static OracleConnection _sharedConnection;  // singleton
+```
+
+All SQL is string-concatenated. `InstrumentRepository.GetInstrumentsByArea` and `MainForm.txtSearch_TextChanged` are direct injection vectors.
 
 ---
 
-## 7. Oracle Connectivity — Two Separate Stacks
+## 6. Oracle Database Schema (original sql/schema.sql)
 
-ADDS has two independent Oracle connection mechanisms that do not share code:
+```sql
+-- Created: 1991, last modified: 2008
+EQUIPMENT    (TAG pk VARCHAR2(20), TYPE, MODEL VARCHAR2(50), LOCATION VARCHAR2(200),
+              CREATED_BY, CREATED_DATE, MODIFIED)
 
-| Layer | API | Source | Authentication |
-|---|---|---|---|
-| AutoLISP | `ads_oadb_*` (Oracle 7/8 OADB ADS functions) | pipe-routing.lsp, db-utils.lsp | Reads `ADDS_ORACLE_USER`/`ADDS_ORACLE_PASS` env vars at runtime |
-| C# | `Oracle.ManagedDataAccess.Client` (ODP.NET managed 19c) | OracleConnection.cs | `OracleConnectionFactory.Configure()` reads `IConfiguration` or env vars |
+PIPE_ROUTES  (ROUTE_ID pk via SEQ_ROUTE, TAG VARCHAR2(20), SPEC VARCHAR2(30),
+              START_PT VARCHAR2(100), END_PT VARCHAR2(100), LENGTH NUMBER, CREATED_DATE)
 
-The AutoLISP side uses string-concatenated SQL (OADB has no bind variable support); SQL injection mitigation is the `adds-sanitize-tag` whitelist function (`[A-Za-z0-9_-]`).
+INSTRUMENTS  (TAG pk, INSTR_TYPE VARCHAR2(10), AREA VARCHAR2(20),
+              POS_X NUMBER, POS_Y NUMBER,
+              LAST_VALUE VARCHAR2(50), TIMESTAMP DATE,
+              CREATED_BY, CREATED_DATE, UPDATED)
 
-The C# side uses parameterized `OracleParameter` throughout.
+VESSELS      (TAG pk, CTR_X NUMBER, CTR_Y NUMBER, RADIUS NUMBER,
+              CREATED_BY, CREATED_DATE)
+
+Sequences: SEQ_ROUTE, SEQ_HX
+```
+
+**Missing from schema but referenced in code:**
+
+| Table | Referenced in |
+|---|---|
+| `HEAT_EXCHANGERS` | equipment.lsp:45, ADDSOracleModule.psm1 |
+| `PROJECTS` | ProjectService.cs:26 |
+
+**Missing from schema but referenced in code:**
+
+| Sequence | Referenced in |
+|---|---|
+| `SEQ_INSTRUMENT` | ADDSOracleModule.psm1:`Reset-ADDSSequences` |
+
+**Schema issues:** no FK constraints, no indexes on non-PK columns, coordinates stored as strings (`LOCATION VARCHAR2(200)`).
 
 ---
 
-## 8. Drawing Commands Reference
+## 7. AutoLISP Command Reference (original)
 
-### AutoLISP commands (interactive)
-
-| Command | File:Line | What it does |
+| Command | File:Line | What the code does |
 |---|---|---|
-| `C:ADDS` | dialog-utils.lsp:55 | Entry point: DB init + main menu |
-| `C:ADDS-DRAW-PIPE` | draw-commands.lsp:4 | Prompts start/end/diameter → draws LINE on PIPE-STD layer → logs event |
-| `C:ADDS-DRAW-VESSEL` | draw-commands.lsp:15 | Prompts center/radius/tag → draws CIRCLE on VESSEL layer → saves to DB |
-| `C:ADDS-DRAW-INSTRUMENT` | draw-commands.lsp:42 | Prompts location/tag/type → inserts INSTR-{type} block → saves to DB |
-| `C:ADDS-PLACE-PUMP` | equipment.lsp:5 | Prompts point/tag/model → inserts PUMP-CENTRIFUGAL block → saves EQUIPMENT |
-| `C:ADDS-PLACE-HEAT-EXCHANGER` | equipment.lsp:52 | Prompts point/tag/shell/tube/area → inserts HX-SHELLTUBE → saves HEAT_EXCHANGERS |
-| `C:ADDS-PLACE-TANK` | equipment.lsp:70 | Prompts point/tag/capacity/material → draws CIRCLE → saves EQUIPMENT |
-| `C:ADDS-ROUTE-PIPE` | pipe-routing.lsp:5 | Prompts start/end → orthogonal 2-segment route → draws LINEs → saves PIPE_ROUTES |
-| `C:ADDS-LIST-PIPES` | pipe-routing.lsp:97 | Queries PIPE_ROUTES, prints tag/spec/length to prompt |
-| `C:ADDS-EDIT-PIPE` | pipe-routing.lsp:109 | Prompts tag → sets MODIFIED=SYSDATE on PIPE_ROUTES row |
-| `C:ADDS-EQUIPMENT-REPORT` | equipment.lsp:83 | Queries EQUIPMENT, prints tag/type/model to prompt |
-| `C:ADDS-DELETE-EQUIPMENT` | equipment.lsp:94 | Prompts tag + confirm → deletes from EQUIPMENT |
+| `C:ADDS` | dialog-utils.lsp:55 | DB init + show main menu + dispatch |
+| `C:ADDS-DRAW-PIPE` | draw-commands.lsp:5 | getpoint×2 + getreal → LAYER + LINE commands → log event to file |
+| `C:ADDS-DRAW-VESSEL` | draw-commands.lsp:16 | getpoint + getreal + getstring → LAYER + CIRCLE + TEXT → `adds-db-save-vessel` |
+| `C:ADDS-DRAW-INSTRUMENT` | draw-commands.lsp:43 | getpoint + getstring×2 → INSERT INSTR-{type} block + ATTDEF → `adds-db-save-instrument` |
+| `C:ADDS-PLACE-PUMP` | equipment.lsp:4 | getpoint + getstring → INSERT PUMP-CENTRIFUGAL block → `adds-db-save-equipment` |
+| `C:ADDS-PLACE-HEAT-EXCHANGER` | equipment.lsp:33 | getpoint + getstring×3 + getreal → INSERT HX-SHELLTUBE block → `adds-db-save-hx` |
+| `C:ADDS-PLACE-TANK` | equipment.lsp:51 | getpoint + getstring×2 + getreal → CIRCLE (radius from capacity formula) → `adds-db-save-equipment` |
+| `C:ADDS-ROUTE-PIPE` | pipe-routing.lsp:4 | getpoint×2 → orthogonal 2-segment LINE route → `adds-db-save-route` |
+| `C:ADDS-LIST-PIPES` | pipe-routing.lsp:60 | SELECT TAG,SPEC,LENGTH FROM PIPE_ROUTES → print to prompt |
+| `C:ADDS-EDIT-PIPE` | pipe-routing.lsp:72 | getstring → UPDATE PIPE_ROUTES SET MODIFIED=SYSDATE |
+| `C:ADDS-EQUIPMENT-REPORT` | equipment.lsp:64 | SELECT TAG,TYPE,MODEL,CREATED_DATE FROM EQUIPMENT → print to prompt |
+| `C:ADDS-DELETE-EQUIPMENT` | equipment.lsp:75 | getstring + Y/N confirm → DELETE FROM EQUIPMENT (no injection guard in original) |
 
-### C# methods (programmatic)
+---
 
-`DrawingManager`: `DrawLine`, `DrawCircle`, `InsertBlock`, `AddText`, `SaveDrawing`, `SaveDrawingAs`, `GetAllLayerNames`, `ZoomExtents`  
-`LayerManager`: `SetupStandardLayers`, `FreezeNonADDSLayers`, `ThawAllLayers`, `PurgeUnusedLayers`, `GetLayersByPrefix`  
-`BlockLibraryManager`: `GetAvailableBlocks`, `LoadBlockLibrary`
+## 8. Global State (original draw-commands.lsp)
+
+```lisp
+;; Set at load time — no config file reading in original
+(setq *ADDS-DRAWING-SCALE*    1.0)
+(setq *ADDS-CURRENT-PROJECT*  nil)
+(setq *ADDS-DB-CONNECTION*    nil)   ; set by adds-db-init
+(setq *ADDS-USER-NAME*        "")    ; set by adds-db-get-username
+(setq *ADDS-UNIT-SYSTEM*      "IMPERIAL")
+(setq *ADDS-LAYER-PREFIX*     "ADDS-")
+(setq *ADDS-ORACLE-HOST*      "ORACLE11G-PROD")   ; hardcoded default
+(setq *ADDS-ORACLE-PORT*      1521)
+(setq *ADDS-ORACLE-SID*       "ADDSDB")
+```
+
+**No runtime config loading in original** — `adds-load-config` was added by ALARMv3 modernization and does not exist in the original code.
 
 ---
 
 ## 9. Offline Write Queue
 
-When `*ADDS-DB-CONNECTION*` is nil (Oracle unreachable), `db-utils.lsp` queues DML as raw SQL strings to `C:\ADDS\db_queue.sql`:
+When `*ADDS-DB-CONNECTION*` is nil, `adds-db-save-vessel` and `adds-db-save-instrument` fall back to appending raw SQL INSERT strings to `C:\ADDS\db_queue.sql`.
 
-```
-adds-db-save-vessel / adds-db-save-instrument
-  └── if no connection → adds-db-queue-write → appends INSERT SQL string to file
-```
+`adds-db-flush-queue` (menu: "Sync Database") replays all queued lines via `ads_oadb_execute` then deletes the file.
 
-Flushed by `adds-db-flush-queue` ("Sync Database" button): replays each line via `ads_oadb_execute`, deletes file on success.
-
-**Risk**: the queue contains unparameterized SQL. The strings were sanitized when written, but the file is not re-validated at flush time. External modification of `db_queue.sql` would execute arbitrary SQL.
+**Risk in original**: no sanitization of tag values before building SQL strings — direct injection vector. The `adds-sanitize-tag` whitelist function was added by ALARMv3 and is not in the original.
 
 ---
 
-## 10. Standard Drawing Layers
+## 10. PowerShell Admin Module (original, deleted in modernized)
 
-From `LayerManager.cs:23–32`:
+`powershell/admin/ADDSOracleModule.psm1` — present in original, **removed** by ALARMv3 modernization with no replacement.
 
-| Layer | AutoCAD color index |
+Exported functions:
+
+| Function | What it does |
 |---|---|
-| PIPE-STD | 7 (white) |
-| PIPE-INSULATED | 5 (blue) |
-| VESSEL | 3 (green) |
-| INSTRUMENT | 4 (cyan) |
-| STRUCTURAL | 6 (magenta) |
-| ELECTRICAL | 2 (yellow) |
-| ADDS-ANNOTATION | 1 (red) |
-| ADDS-DIMENSION | 8 (dark grey) |
+| `Connect-ADDSOracle` | Opens ODP.NET 11.2 connection; credentials hardcoded as defaults |
+| `Invoke-ADDSOracleQuery` | Executes raw SQL query, returns DataTable |
+| `Backup-ADDSDatabase` | Runs Oracle `exp` via `Invoke-Expression` (security risk); hardcoded password in command line |
+| `Restore-ADDSDatabase` | Runs Oracle `imp` via `Invoke-Expression` |
+| `Get-ADDSTableStats` | SELECT COUNT(*) for EQUIPMENT, INSTRUMENTS, PIPE_ROUTES, VESSELS, HEAT_EXCHANGERS |
+| `Reset-ADDSSequences` | ALTER SEQUENCE RESTART for SEQ_ROUTE, SEQ_HX, SEQ_INSTRUMENT |
 
 ---
 
-## 11. Security Findings
+## 11. Security Findings (original code)
 
 | Finding | Severity | Location |
 |---|---|---|
-| Plaintext password in `adds.config` (`ORACLE_PASS=adds_p@ss_2003!`) | Critical | config/adds.config:5 |
-| Offline queue replays raw SQL strings without re-validation at flush time | High | db-utils.lsp:51–63 |
-| `adds-sanitize-tag` is duplicated in equipment.lsp and pipe-routing.lsp — divergence risk | Medium | equipment.lsp:26, pipe-routing.lsp:74 |
-| `BulkDataLoader` uses string interpolation for table name after allowlist check (safe but fragile) | Low | StoredProcedures.cs:79, 87 |
+| Plaintext password in source (`"adds_pass_plaintext"`, `"adds_p@ss_2003!"`) | Critical | pipe-routing.lsp:21, OracleConnection.cs:28, ADDSOracleModule.psm1:6 |
+| Same password in `config/adds.config` | Critical | config/adds.config:5 |
+| SQL injection: MainForm search box concatenates raw user input | Critical | MainForm.cs:87 |
+| SQL injection: InstrumentRepository.GetInstrumentsByArea concatenates area param | High | OracleConnection.cs:91 |
+| SQL injection: all AutoLISP db-save functions build SQL via strcat; no sanitization | High | equipment.lsp, db-utils.lsp |
+| Offline queue replays raw SQL at flush; no re-validation | High | db-utils.lsp:51 |
+| Backup-ADDSDatabase / Restore-ADDSDatabase use Invoke-Expression with password on command line | High | ADDSOracleModule.psm1:42,60 |
+| Singleton Oracle connection shared across all operations — not thread-safe | Medium | OracleConnection.cs:23 |
 
 ---
 
-## 12. Modernization State (main branch, 2026-04-21)
+## 12. Standard Drawing Layers
 
-### Changes applied
+From `csharp/AutoCAD/LayerManager.cs` (original):
 
-| Area | Before | After |
+| Layer | Color index | Color |
 |---|---|---|
-| Oracle driver (C#) | `Oracle.DataAccess` unmanaged 11.2 | `Oracle.ManagedDataAccess.Client` ODP.NET 19c |
-| AutoCAD API (C#) | COM/ActiveX, `Marshal.GetActiveObject` | Native `AcMgd.dll`/`AcCoreMgd.dll` .NET API |
-| UI (C#) | WinForms `MainForm` | WPF `PaletteSet` + MVVM |
-| Async (C#) | `BackgroundWorker` | `async/await`, `CancellationTokenSource` |
-| Credential handling | Hardcoded strings | Env vars / `IConfiguration` / Windows Credential Manager |
-| SQL (C#) | String concatenation | Parameterized `OracleParameter` |
-| Logging (C#) | `Console.WriteLine` | `Microsoft.Extensions.Logging.ILogger` |
-| Class structure | `BlockLibraryManager` inside `DrawingManager` | Extracted to own file |
-
-### Compilation blockers
-
-1. **No `.csproj` file** — `Oracle.ManagedDataAccess.Core` NuGet reference missing; project will not build.
-2. **`MainPaletteView` XAML missing** — `MainForm.cs:116` calls `InitializeComponent()` but no `.xaml` file exists; palette will fail at runtime.
-3. **No plugin entry point** — no `IExtensionApplication` implementation; `OracleConnectionFactory.Configure()` is never called; the C# data access layer is uncallable.
-
-### Evaluator verdict summary
-
-14 changes applied. ALARMv3 evaluator: 12 flagged, 2 rejected. No change passed clean.  
-The LISP drawing commands (`C:ADDS-*`) are all present in the current files — the note about "complete feature loss" from an earlier analysis was based on a corrupted intermediate state subsequently fixed in the "Fix corrupted modernized source files" commit.
+| PIPE-STD | 7 | white |
+| PIPE-INSULATED | 5 | blue |
+| VESSEL | 3 | green |
+| INSTRUMENT | 4 | cyan |
+| STRUCTURAL | 6 | magenta |
+| ELECTRICAL | 2 | yellow |
+| ADDS-ANNOTATION | 1 | red |
+| ADDS-DIMENSION | 8 | dark grey |
 
 ---
 
-## 13. Querying the Codebase (Vector Search)
+## 13. Modernization State (main branch)
 
-72 code chunks embedded via `nomic-embed-text` (768 dimensions) in `analysis.db/chunk_vectors`. Ollama must be running (`ollama serve`).
+### Applied changes
+
+| # | Change | Status |
+|---|---|---|
+| 1 | Unmanaged ODP.NET 11.2 → managed 19c | Applied |
+| 2 | Parameterize all C# Oracle queries | Applied |
+| 3 | COM/ActiveX → .NET AutoCAD API | Applied |
+| 4 | WinForms → WPF PaletteSet MVVM | Applied |
+| 5 | BackgroundWorker → async/await | Applied |
+| 6 | Externalize credentials | Applied (partial — adds.config still has plaintext) |
+| 7 | Structured logging | Applied |
+| 8 | Extract BlockLibraryManager | Applied |
+| 9–14 | Various other improvements | Applied |
+
+### Compilation blockers (modernized branch)
+
+1. **No `.csproj`** — project will not build without `Oracle.ManagedDataAccess.Core` NuGet reference
+2. **`MainPaletteView` XAML missing** — `InitializeComponent()` in `MainForm.cs:116` will fail at runtime
+3. **No `IExtensionApplication`** — no plugin entry point; `OracleConnectionFactory.Configure()` is never called
+4. **`ADDSOracleModule.psm1` deleted** with no replacement — backup/restore/admin capability lost
+
+### Evaluator verdict
+
+14 changes applied; ALARMv3 evaluator: 12 flagged, 2 rejected, 0 clean.
+
+---
+
+## 14. Vector Search Quality Note
+
+The vector index (72 chunks, `nomic-embed-text`, 768d) is built from the **modernized** source files using function-level symbol slicing. Known limitations:
+
+- **File headers are not embedded**: each chunk starts at a symbol's first line (`start_line` from the `symbol` table). Lines before the first symbol — which typically contain the most descriptive file-level comments — are dropped.
+- **Domain queries return code bodies**: searching "what is ADDS used for" returns function implementations, not descriptive text.
+- **Chunks are from modernized code**, not original: ALARMv3-added functions appear as if they were original.
+
+To improve: rebuild the index from the original commit (`cf22e8d`) and include a file-header chunk (lines 1 to `min(first_symbol_start-1, 20)`) for each file in addition to symbol-level chunks.
+
+---
+
+## 15. Querying the Codebase
 
 ```bash
-python3 - <<'EOF'
-import sys
-sys.path.insert(0, '/workspaces/ALARMv3/src')
-from alarmv3.core.knowledge import KnowledgeBuilder
-kb = KnowledgeBuilder('/workspaces/ADDS_ALARMv3/.alarmv3/sessions/32552d53-4281-4c3c-a922-4dd1ad53be8c/analysis.db')
-results = kb.query("your question here", top_k=5)
-for r in results:
-    print(r['file_path'], r['symbol_name'])
-    print(r['content'][:300])
+/workspaces/ALARMv3/.venv/bin/python3 - <<'EOF'
+import sys, sqlite3
+sys.path.insert(0, '/workspaces/ALARMv3/.venv/lib/python3.12/site-packages')
+
+DB = '/workspaces/ADDS_ALARMv3/.alarmv3/sessions/32552d53-4281-4c3c-a922-4dd1ad53be8c/analysis.db'
+
+# Direct SQL query against the chunk + vector tables
+conn = sqlite3.connect(DB)
+rows = conn.execute(
+    "SELECT file_path, symbol_name, content FROM code_chunk ORDER BY RANDOM() LIMIT 5"
+).fetchall()
+for fp, sym, content in rows:
+    print(fp.split('/')[-1], sym)
+    print(content[:200])
     print('---')
+conn.close()
 EOF
 ```
+
+For semantic (vector) queries, Ollama must be running (`nohup ollama serve > /tmp/ollama.log 2>&1 &`). Vector search uses `nomic-embed-text` via the KnowledgeBuilder in `/workspaces/ALARMv3/src/alarmv3/core/knowledge.py`.
